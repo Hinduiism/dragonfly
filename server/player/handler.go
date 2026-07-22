@@ -152,6 +152,13 @@ type Handler interface {
 	HandleDiagnostics(p *Player, d session.Diagnostics)
 }
 
+// KnockBackHandler may be implemented by a Handler to alter the final
+// velocity applied by Player.KnockBack. Calling ctx.Cancel suppresses only the
+// velocity update associated with this knockback.
+type KnockBackHandler interface {
+	HandleKnockBack(ctx *Context, source mgl64.Vec3, force, height float64, velocity *mgl64.Vec3)
+}
+
 // NopHandler implements the Handler interface but does not execute any code when an event is called. The
 // default Handler of players is set to NopHandler.
 // Users may embed NopHandler to avoid having to implement each method.

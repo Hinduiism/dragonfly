@@ -740,12 +740,24 @@ func (p *Player) KnockBack(src mgl64.Vec3, force, height float64) {
 	if p.Dead() || !p.GameMode().AllowsTakingDamage() {
 		return
 	}
-	p.knockBack(src, force, height)
+	velocity := p.knockBackVelocity(src, force, height)
+	if handler, ok := p.Handler().(KnockBackHandler); ok {
+		ctx := newContext(p)
+		handler.HandleKnockBack(ctx, src, force, height, &velocity)
+		if ctx.Cancelled() {
+			return
+		}
+	}
+	p.SetVelocity(velocity)
 }
 
 // knockBack is an unexported function that is used to knock the player back. This function does not check if the player
 // can take damage or not.
 func (p *Player) knockBack(src mgl64.Vec3, force, height float64) {
+	p.SetVelocity(p.knockBackVelocity(src, force, height))
+}
+
+func (p *Player) knockBackVelocity(src mgl64.Vec3, force, height float64) mgl64.Vec3 {
 	velocity := p.Position().Sub(src)
 	velocity[1] = 0
 
@@ -754,7 +766,7 @@ func (p *Player) knockBack(src mgl64.Vec3, force, height float64) {
 	}
 	velocity[1] = height
 
-	p.SetVelocity(velocity.Mul(1 - p.Armour().KnockBackResistance()))
+	return velocity.Mul(1 - p.Armour().KnockBackResistance())
 }
 
 // setAttackImmunity sets the duration the player is immune to entity attacks.
