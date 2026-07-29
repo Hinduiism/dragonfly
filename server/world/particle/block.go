@@ -26,6 +26,18 @@ type Dust struct {
 	Colour color.RGBA
 }
 
+// Bubble is a particle shown as a rising water bubble.
+type Bubble struct{ particle }
+
+// EnchantmentTable is a particle shown around an active enchantment table.
+type EnchantmentTable struct{ particle }
+
+// Portal is a particle shown around an active Nether portal.
+type Portal struct{ particle }
+
+// RainSplash is a particle shown when rain hits a surface.
+type RainSplash struct{ particle }
+
 // BlockBreak is a particle sent when a block is broken. It represents a bunch of particles that are textured
 // like the block that the particle holds.
 type BlockBreak struct {

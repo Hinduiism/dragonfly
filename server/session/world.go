@@ -365,8 +365,79 @@ func (s *Session) ViewSleepingPlayers(sleeping, max int) {
 	})
 }
 
+const (
+	legacyParticleHeart            int32 = 20
+	legacyParticlePortal           int32 = 23
+	legacyParticleRainSplash       int32 = 39
+	legacyParticleEnchantmentTable int32 = 42
+	legacyParticleTotem            int32 = 51
+	legacyParticleSparkler         int32 = 58
+)
+
+// encodeParticleLevelEvent encodes particles that map directly to one
+// protocol LevelEvent.
+func encodeParticleLevelEvent(pos mgl64.Vec3, p world.Particle) (*packet.LevelEvent, bool) {
+	switch pa := p.(type) {
+	case particle.Bubble:
+		return &packet.LevelEvent{
+			EventType: packet.LevelEventParticlesBubble,
+			Position:  vec64To32(pos),
+		}, true
+	case particle.Critical:
+		scale := pa.Scale
+		if scale == 0 {
+			scale = 2
+		}
+		return &packet.LevelEvent{
+			EventType: packet.LevelEventParticlesCritical,
+			Position:  vec64To32(pos),
+			EventData: int32(scale),
+		}, true
+	case particle.EnchantmentTable:
+		return legacyParticleLevelEvent(pos, legacyParticleEnchantmentTable, 0), true
+	case particle.Heart:
+		return legacyParticleLevelEvent(pos, legacyParticleHeart, int32(pa.Scale)), true
+	case particle.Portal:
+		return legacyParticleLevelEvent(pos, legacyParticlePortal, 0), true
+	case particle.RainSplash:
+		return legacyParticleLevelEvent(pos, legacyParticleRainSplash, 0), true
+	case particle.SonicBoom:
+		return &packet.LevelEvent{
+			EventType: packet.LevelEventSonicExplosion,
+			Position:  vec64To32(pos),
+		}, true
+	case particle.WindExplosion:
+		return &packet.LevelEvent{
+			EventType: packet.LevelEventParticlesWindExplosion,
+			Position:  vec64To32(pos),
+		}, true
+	case particle.Sparkler:
+		return legacyParticleLevelEvent(pos, legacyParticleSparkler, rgbEventData(pa.Colour)), true
+	case particle.Totem:
+		return legacyParticleLevelEvent(pos, legacyParticleTotem, 0), true
+	default:
+		return nil, false
+	}
+}
+
+func legacyParticleLevelEvent(pos mgl64.Vec3, id, data int32) *packet.LevelEvent {
+	return &packet.LevelEvent{
+		EventType: packet.LevelEventParticleLegacyEvent | id,
+		Position:  vec64To32(pos),
+		EventData: data,
+	}
+}
+
+func rgbEventData(colour color.RGBA) int32 {
+	return int32(colour.R)<<16 | int32(colour.G)<<8 | int32(colour.B)
+}
+
 // ViewParticle ...
 func (s *Session) ViewParticle(pos mgl64.Vec3, p world.Particle) {
+	if pk, ok := encodeParticleLevelEvent(pos, p); ok {
+		s.writePacket(pk)
+		return
+	}
 	switch pa := p.(type) {
 	case particle.DragonEggTeleport:
 		xSign, ySign, zSign := 0, 0, 0
