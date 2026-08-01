@@ -13,9 +13,10 @@ import (
 // Tx is the owner transaction handle passed to world callbacks. It is the
 // only way to perform world operations and is valid only during its callback.
 type Tx struct {
-	w        *World
-	closed   bool
-	deferred []scheduledTransaction
+	w            *World
+	closed       bool
+	deferred     []scheduledTransaction
+	blockUpdates *blockUpdateBatch
 }
 
 // Context is a cancellable event scope passed to Handler events. It embeds the
@@ -65,6 +66,12 @@ func (tx *Tx) Range() cube.Range {
 	return tx.World().ra
 }
 
+// BlockChange describes one block mutation in a bulk block update.
+type BlockChange struct {
+	Position cube.Pos
+	Block    Block
+}
+
 // SetBlock writes a block to the position passed. If a chunk is not yet loaded
 // at that position, the chunk is first loaded or generated if it could not be
 // found in the world save. SetBlock panics if the block passed has not yet
@@ -81,6 +88,16 @@ func (tx *Tx) Range() cube.Range {
 // instead.
 func (tx *Tx) SetBlock(pos cube.Pos, b Block, opts *SetOpts) {
 	tx.setBlock(pos, b, opts)
+}
+
+// SetBlocks applies a sparse group of block changes to the World. Changes are
+// applied in the order supplied. If a position occurs more than once, its last
+// change determines the state shown to viewers. SetBlocks follows the same
+// block, liquid, redstone and neighbour-update rules as SetBlock. The input
+// slice is not retained. Nil blocks become air, out-of-range positions are
+// ignored and unregistered blocks panic as they do in SetBlock.
+func (tx *Tx) SetBlocks(changes []BlockChange, opts *SetOpts) {
+	tx.setBlocks(changes, opts)
 }
 
 // SetBlockEntity updates block entity data without notifying viewers, updating

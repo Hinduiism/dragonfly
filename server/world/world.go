@@ -333,6 +333,130 @@ type SetOpts struct {
 	DisableRedstoneUpdates bool
 }
 
+type blockUpdateKey struct {
+	position cube.Pos
+	layer    int
+}
+
+type indexedBlockUpdate struct {
+	update BlockUpdate
+	index  int
+}
+
+type blockUpdateGroup struct {
+	position SubChunkPos
+	updates  map[blockUpdateKey]indexedBlockUpdate
+}
+
+type blockUpdateBatch struct {
+	groups map[SubChunkPos]*blockUpdateGroup
+	order  []*blockUpdateGroup
+	next   int
+}
+
+func (b *blockUpdateBatch) add(pos cube.Pos, block Block, layer int) {
+	if b.groups == nil {
+		b.groups = make(map[SubChunkPos]*blockUpdateGroup)
+	}
+	position := SubChunkPos{int32(pos.X() >> 4), int32(pos.Y() >> 4), int32(pos.Z() >> 4)}
+	group := b.groups[position]
+	if group == nil {
+		group = &blockUpdateGroup{
+			position: position,
+			updates:  make(map[blockUpdateKey]indexedBlockUpdate),
+		}
+		b.groups[position] = group
+		b.order = append(b.order, group)
+	}
+	key := blockUpdateKey{position: pos, layer: layer}
+	group.updates[key] = indexedBlockUpdate{
+		update: BlockUpdate{Position: pos, Block: block, Layer: layer},
+		index:  b.next,
+	}
+	b.next++
+}
+
+func (b *blockUpdateBatch) flush(tx *Tx) {
+	for _, group := range b.order {
+		indexed := make([]indexedBlockUpdate, 0, len(group.updates))
+		for _, update := range group.updates {
+			indexed = append(indexed, update)
+		}
+		slices.SortFunc(indexed, func(a, b indexedBlockUpdate) int {
+			switch {
+			case a.index < b.index:
+				return -1
+			case a.index > b.index:
+				return 1
+			default:
+				return 0
+			}
+		})
+
+		updates := make([]BlockUpdate, len(indexed))
+		for i, update := range indexed {
+			updates[i] = update.update
+		}
+		column := tx.chunk(ChunkPos{group.position.X(), group.position.Z()})
+		for _, viewer := range slices.Clone(column.viewers) {
+			if viewer, ok := viewer.(blockUpdateViewer); ok {
+				viewer.ViewBlockUpdates(group.position, updates)
+				continue
+			}
+			for _, update := range updates {
+				viewer.ViewBlockUpdate(update.Position, update.Block, update.Layer)
+			}
+		}
+	}
+}
+
+func (b *blockUpdateBatch) clear() {
+	for _, group := range b.order {
+		clear(group.updates)
+		group.updates = nil
+	}
+	clear(b.groups)
+	b.groups = nil
+	b.order = nil
+	b.next = 0
+}
+
+func (tx *Tx) setBlocks(changes []BlockChange, opts *SetOpts) {
+	if len(changes) == 0 {
+		return
+	}
+	if tx.blockUpdates != nil {
+		for _, change := range changes {
+			tx.setBlock(change.Position, change.Block, opts)
+		}
+		return
+	}
+
+	batch := &blockUpdateBatch{}
+	tx.blockUpdates = batch
+	defer func() {
+		tx.blockUpdates = nil
+		batch.clear()
+	}()
+	for _, change := range changes {
+		tx.setBlock(change.Position, change.Block, opts)
+	}
+	tx.blockUpdates = nil
+	batch.flush(tx)
+}
+
+func (tx *Tx) viewBlockUpdate(viewers []Viewer, hasViewers bool, pos cube.Pos, block Block, layer int) {
+	if tx.blockUpdates != nil {
+		if hasViewers {
+			tx.blockUpdates.add(pos, block, layer)
+		}
+		return
+	}
+	for _, viewer := range viewers {
+		viewer.ViewBlockUpdate(pos, block, layer)
+	}
+}
+
 // setBlock writes a block to the position passed. If a chunk is not yet loaded
 // at that position, the chunk is first loaded or generated if it could not be
 // found in the world save. setBlock panics if the block passed has not yet
@@ -392,7 +516,11 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 		delete(c.BlockEntities, pos)
 	}
 
-	viewers := slices.Clone(c.viewers)
+	hasViewers := len(c.viewers) != 0
+	var viewers []Viewer
+	if tx.blockUpdates == nil && hasViewers {
+		viewers = slices.Clone(c.viewers)
+	}
 
 	if !opts.DisableLiquidDisplacement {
 		var secondLayer Block
@@ -419,9 +547,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 		}
 
 		if secondLayer != nil {
-			for _, viewer := range viewers {
-				viewer.ViewBlockUpdate(pos, secondLayer, 1)
-			}
+			tx.viewBlockUpdate(viewers, hasViewers, pos, secondLayer, 1)
 		}
 	}
 
@@ -429,9 +555,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 		w.redstone.forget(pos)
 	}
 
-	for _, viewer := range viewers {
-		viewer.ViewBlockUpdate(pos, b, 0)
-	}
+	tx.viewBlockUpdate(viewers, hasViewers, pos, b, 0)
 
 	if !opts.DisableBlockUpdates {
 		w.doBlockUpdatesAround(pos)
@@ -606,7 +730,7 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 	chunkPos := chunkPosFromBlockPos(pos)
 	c := tx.chunk(chunkPos)
 	if b == nil {
-		w.removeLiquids(c, pos)
+		tx.removeLiquids(c, pos)
 		w.doBlockUpdatesAround(pos)
 		w.redstone.invalidateAround(pos, pos, RedstoneUpdateCauseBlockUpdate, w.Range())
 		return
@@ -618,16 +742,12 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 		}
 	}
 	rid := w.conf.Blocks.BlockRuntimeID(b)
-	if w.removeLiquids(c, pos) {
+	if tx.removeLiquids(c, pos) {
 		c.SetBlock(x, y, z, 0, rid)
-		for _, v := range c.viewers {
-			v.ViewBlockUpdate(pos, b, 0)
-		}
+		tx.viewBlockUpdate(c.viewers, len(c.viewers) != 0, pos, b, 0)
 	} else {
 		c.SetBlock(x, y, z, 1, rid)
-		for _, v := range c.viewers {
-			v.ViewBlockUpdate(pos, b, 1)
-		}
+		tx.viewBlockUpdate(c.viewers, len(c.viewers) != 0, pos, b, 1)
 	}
 	c.modified = true
 
@@ -638,23 +758,21 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 // removeLiquids removes any liquid blocks that may be present at a specific
 // block position in the chunk passed. The bool returned specifies if no blocks
 // were left on the foreground layer.
-func (w *World) removeLiquids(c *Column, pos cube.Pos) bool {
+func (tx *Tx) removeLiquids(c *Column, pos cube.Pos) bool {
+	w := tx.World()
 	x, y, z := uint8(pos[0]), int16(pos[1]), uint8(pos[2])
 	air := w.conf.Blocks.Air()
+	hasViewers := len(c.viewers) != 0
 
 	noneLeft := false
 	if noLeft, changed := w.removeLiquidOnLayer(c.Chunk, x, y, z, 0); noLeft {
 		if changed {
-			for _, v := range c.viewers {
-				v.ViewBlockUpdate(pos, air, 0)
-			}
+			tx.viewBlockUpdate(c.viewers, hasViewers, pos, air, 0)
 		}
 		noneLeft = true
 	}
 	if _, changed := w.removeLiquidOnLayer(c.Chunk, x, y, z, 1); changed {
-		for _, v := range c.viewers {
-			v.ViewBlockUpdate(pos, air, 1)
-		}
+		tx.viewBlockUpdate(c.viewers, hasViewers, pos, air, 1)
 	}
 	return noneLeft
 }

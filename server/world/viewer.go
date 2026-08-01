@@ -80,6 +80,19 @@ type Viewer interface {
 	ViewEntityWake(e Entity)
 }
 
+// BlockUpdate describes one visible block-layer update.
+type BlockUpdate struct {
+	Position cube.Pos
+	Block    Block
+	Layer    int
+}
+
+// blockUpdateViewer is implemented by viewers capable of receiving block
+// updates in groups.
+type blockUpdateViewer interface {
+	ViewBlockUpdates(pos SubChunkPos, updates []BlockUpdate)
+}
+
 // NopViewer is a Viewer implementation that does not implement any behaviour. It may be embedded by other structs to
 // prevent having to implement all of Viewer's methods.
 type NopViewer struct{}

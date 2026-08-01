@@ -1071,8 +1071,44 @@ func (s *Session) ViewBlockUpdate(pos cube.Pos, b world.Block, layer int) {
 		Flags:             packet.BlockUpdateNetwork,
 		Layer:             uint32(layer),
 	})
+	s.viewBlockActorData(pos, b)
+}
+
+// ViewBlockUpdates views a group of block updates within one sub-chunk.
+func (s *Session) ViewBlockUpdates(pos world.SubChunkPos, updates []world.BlockUpdate) {
+	var blocks, extra []protocol.BlockChangeEntry
+	for _, update := range updates {
+		entry := protocol.BlockChangeEntry{
+			BlockPos:       protocol.BlockPos{int32(update.Position.X()), int32(update.Position.Y()), int32(update.Position.Z())},
+			BlockRuntimeID: s.br.BlockRuntimeID(update.Block),
+			Flags:          packet.BlockUpdateNetwork,
+		}
+		switch update.Layer {
+		case 0:
+			blocks = append(blocks, entry)
+		case 1:
+			extra = append(extra, entry)
+		}
+	}
+	if len(blocks) == 0 && len(extra) == 0 {
+		return
+	}
+	s.writePacket(&packet.UpdateSubChunkBlocks{
+		Position: protocol.BlockPos{pos.X(), pos.Y(), pos.Z()},
+		Blocks:   blocks,
+		Extra:    extra,
+	})
+	for _, update := range updates {
+		if update.Layer == 0 || update.Layer == 1 {
+			s.viewBlockActorData(update.Position, update.Block)
+		}
+	}
+}
+
+func (s *Session) viewBlockActorData(pos cube.Pos, b world.Block) {
 	if v, ok := b.(world.NBTer); ok {
 		if nbtData := v.EncodeNBT(); nbtData != nil {
+			blockPos := protocol.BlockPos{int32(pos[0]), int32(pos[1]), int32(pos[2])}
 			nbtData["x"], nbtData["y"], nbtData["z"] = int32(pos.X()), int32(pos.Y()), int32(pos.Z())
 			s.writePacket(&packet.BlockActorData{
 				Position: blockPos,
