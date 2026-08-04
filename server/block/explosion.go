@@ -52,34 +52,6 @@ type Explodable interface {
 	Explode(src world.ExplosionSource, pos cube.Pos, tx *world.Tx)
 }
 
-type explosionBlockInfo struct {
-	resistance float64
-	flags      uint8
-}
-
-const (
-	explosionBlockResists uint8 = 1 << iota
-	explosionBlockStopsRay
-	explosionBlockAffected
-)
-
-// rays ...
-var rays = make([]mgl64.Vec3, 0, 1352)
-
-// init ...
-func init() {
-	for x := 0.0; x < 16; x++ {
-		for y := 0.0; y < 16; y++ {
-			for z := 0.0; z < 16; z++ {
-				if x != 0 && x != 15 && y != 0 && y != 15 && z != 0 && z != 15 {
-					continue
-				}
-				rays = append(rays, mgl64.Vec3{x/15*2 - 1, y/15*2 - 1, z/15*2 - 1}.Normalize().Mul(0.3))
-			}
-		}
-	}
-}
-
 // Explode performs the explosion as specified by the configuration.
 func (c ExplosionConfig) Explode(tx *world.Tx, src world.ExplosionSource) {
 	if c.Sound == nil {
@@ -123,43 +95,7 @@ func (c ExplosionConfig) Explode(tx *world.Tx, src world.ExplosionSource) {
 		// Liquids such as water stop a regular TNT blast at the source, so avoid reserving space for a full blast.
 		estimatedBlocks = 32
 	}
-	affectedBlocks := make([]cube.Pos, 0, estimatedBlocks)
-	blockCache := make(map[cube.Pos]explosionBlockInfo, estimatedBlocks)
-	for _, ray := range rays {
-		pos := explosionPos
-		for blastForce := size * (0.7 + r.Float64()*0.6); blastForce > 0.0; blastForce -= 0.225 {
-			current := cube.PosFromVec3(pos)
-			info, ok := blockCache[current]
-			if !ok {
-				currentBlock := tx.Block(current)
-				if l, ok := tx.Liquid(current); ok {
-					info.resistance = l.BlastResistance()
-					info.flags = explosionBlockResists
-				} else if i, ok := currentBlock.(Breakable); ok {
-					info.resistance = i.BreakInfo().BlastResistance
-					info.flags = explosionBlockResists
-				} else if _, ok = currentBlock.(Air); !ok {
-					info.flags = explosionBlockStopsRay
-				}
-				blockCache[current] = info
-			}
-			if info.flags&explosionBlockStopsRay != 0 {
-				// Completely stop the ray if the current block is not air and unbreakable.
-				break
-			}
-
-			pos = pos.Add(ray)
-			// Air offers no resistance to the ray, only blocks and liquids reduce its force beyond the step decay.
-			if info.flags&explosionBlockResists != 0 {
-				blastForce -= (info.resistance + 0.3) * 0.3
-			}
-			if blastForce > 0 && info.flags&explosionBlockAffected == 0 {
-				info.flags |= explosionBlockAffected
-				blockCache[current] = info
-				affectedBlocks = append(affectedBlocks, current)
-			}
-		}
-	}
+	affectedBlocks := selectExplosionBlocks(tx, explosionPos, size, r, estimatedBlocks)
 
 	ctx := tx.Event()
 	spawnFire := c.SpawnFire
@@ -168,12 +104,40 @@ func (c ExplosionConfig) Explode(tx *world.Tx, src world.ExplosionSource) {
 		return
 	}
 
-	for _, e := range affectedEntities {
+	var collisionVolume *explosionCollisionVolume
+	compiledExposureAvailable := true
+	for entityIndex, e := range affectedEntities {
 		explodable, ok := e.(ExplodableEntity)
 		if !ok {
 			continue
 		}
-		impact := (1 - e.Position().Sub(explosionPos).Len()/d) * c.exposure(tx, explosionPos, e)
+		distanceFactor := 1 - e.Position().Sub(explosionPos).Len()/d
+
+		if compiledExposureAvailable && (collisionVolume == nil || !collisionVolume.snapshot.Current(tx) || !collisionVolume.covers(explosionPos, e)) {
+			remainingEntities := affectedEntities[entityIndex:]
+			if shouldCompileExplosionExposure(remainingEntities) {
+				collisionVolume, ok = compileExplosionCollisionVolume(tx, explosionPos, remainingEntities, c.SuppressUnderwaterImpact)
+			} else {
+				ok = false
+			}
+			if !ok {
+				compiledExposureAvailable = false
+				collisionVolume = nil
+			}
+		}
+		var exposure float64
+		if collisionVolume != nil {
+			if compiled, complete := c.compiledExposure(collisionVolume, explosionPos, e); complete {
+				exposure = compiled
+			} else {
+				compiledExposureAvailable = false
+				collisionVolume = nil
+				exposure = c.exposure(tx, explosionPos, e)
+			}
+		} else {
+			exposure = c.exposure(tx, explosionPos, e)
+		}
+		impact := distanceFactor * exposure
 		if c.SuppressUnderwaterImpact && impact <= 0 {
 			// The blast never reached the entity. Skip the call entirely, as entities with a constant damage term,
 			// such as players, would otherwise still be hurt through the liquid that blocked it.
@@ -219,6 +183,7 @@ func (c ExplosionConfig) Explode(tx *world.Tx, src world.ExplosionSource) {
 func (c ExplosionConfig) exposure(tx *world.Tx, origin mgl64.Vec3, e world.Entity) float64 {
 	pos := e.Position()
 	box := e.H().Type().BBox(e).Translate(pos)
+	cache := newLiveExplosionCollisionCache(origin, box)
 
 	boxMin, boxMax := box.Min(), box.Max()
 	diff := boxMax.Sub(boxMin).Mul(2.0).Add(mgl64.Vec3{1, 1, 1})
@@ -242,13 +207,7 @@ func (c ExplosionConfig) exposure(tx *world.Tx, origin mgl64.Vec3, e world.Entit
 				}
 				var collided bool
 				trace.TraverseBlocks(origin, point, func(pos cube.Pos) (cont bool) {
-					if c.SuppressUnderwaterImpact {
-						if _, liquid := tx.Liquid(pos); liquid {
-							collided = true
-							return false
-						}
-					}
-					_, collided = trace.BlockIntercept(pos, tx, tx.Block(pos), origin, point)
+					collided = cache.intersects(tx, pos, origin, point, c.SuppressUnderwaterImpact)
 					return !collided
 				})
 

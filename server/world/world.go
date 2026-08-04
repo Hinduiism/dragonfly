@@ -215,7 +215,12 @@ func (w *World) EntityRegistry() EntityRegistry {
 // at that position, the chunk is loaded, or generated if it could not be found
 // in the world save, and the block returned.
 func (tx *Tx) block(pos cube.Pos) Block {
-	return tx.World().blockInChunk(tx.chunk(chunkPosFromBlockPos(pos)), pos)
+	w := tx.World()
+	block, initializedBlockEntity := w.blockInChunkResult(tx.chunk(chunkPosFromBlockPos(pos)), pos)
+	if initializedBlockEntity {
+		tx.blockRevision++
+	}
+	return block
 }
 
 // blockLoaded reads a block from a position only if its chunk is already loaded.
@@ -239,15 +244,20 @@ func (w *World) blockLoaded(pos cube.Pos) (Block, bool) {
 // blockInChunk reads a block from a chunk at the position passed. The block
 // is assumed to be within the chunk passed.
 func (w *World) blockInChunk(c *Column, pos cube.Pos) Block {
+	block, _ := w.blockInChunkResult(c, pos)
+	return block
+}
+
+func (w *World) blockInChunkResult(c *Column, pos cube.Pos) (Block, bool) {
 	if pos.OutOfBounds(w.ra) {
 		// Fast way out.
-		return w.conf.Blocks.Air()
+		return w.conf.Blocks.Air(), false
 	}
 	rid := c.Block(uint8(pos[0]), int16(pos[1]), uint8(pos[2]), 0)
 	if w.conf.Blocks.NBTBlock(rid) {
 		// The block was also a block entity, so we look it up in the block entity map.
 		if b, ok := c.BlockEntities[pos]; ok {
-			return b
+			return b, false
 		}
 		// Despite being a block with NBT, the block didn't actually have any
 		// stored NBT yet. We add it here and update the block.
@@ -256,9 +266,9 @@ func (w *World) blockInChunk(c *Column, pos cube.Pos) Block {
 		for _, v := range c.viewers {
 			v.ViewBlockUpdate(pos, nbtB, 0)
 		}
-		return nbtB
+		return nbtB, true
 	}
-	return w.conf.Blocks.BlockByRuntimeIDOrAir(rid)
+	return w.conf.Blocks.BlockByRuntimeIDOrAir(rid), false
 }
 
 // biome reads the Biome at the position passed. If a chunk is not yet loaded
@@ -510,6 +520,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 
 	c.modified = true
 	c.SetBlock(x, y, z, 0, rid)
+	tx.blockRevision++
 	if w.conf.Blocks.NBTBlock(rid) {
 		c.BlockEntities[pos] = b
 	} else {
@@ -581,6 +592,7 @@ func (tx *Tx) setBlockEntity(pos cube.Pos, b Block) {
 	}
 	c.BlockEntities[pos] = b
 	c.modified = true
+	tx.blockRevision++
 }
 
 // setBiome sets the Biome at the position passed. If a chunk is not yet loaded
@@ -607,6 +619,9 @@ func (tx *Tx) buildStructure(pos cube.Pos, s Structure) {
 	w := tx.World()
 	dim := s.Dimensions()
 	width, height, length := dim[0], dim[1], dim[2]
+	if width > 0 && height > 0 && length > 0 {
+		tx.blockRevision++
+	}
 	maxX, maxY, maxZ := pos[0]+width, pos[1]+height, pos[2]+length
 	f := func(x, y, z int) Block {
 		return tx.block(cube.Pos{pos[0] + x, pos[1] + y, pos[2] + z})
@@ -727,6 +742,7 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 		// Fast way out.
 		return
 	}
+	tx.blockRevision++
 	chunkPos := chunkPosFromBlockPos(pos)
 	c := tx.chunk(chunkPos)
 	if b == nil {

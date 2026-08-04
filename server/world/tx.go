@@ -13,10 +13,11 @@ import (
 // Tx is the owner transaction handle passed to world callbacks. It is the
 // only way to perform world operations and is valid only during its callback.
 type Tx struct {
-	w            *World
-	closed       bool
-	deferred     []scheduledTransaction
-	blockUpdates *blockUpdateBatch
+	w             *World
+	closed        bool
+	deferred      []scheduledTransaction
+	blockUpdates  *blockUpdateBatch
+	blockRevision uint64
 }
 
 // Context is a cancellable event scope passed to Handler events. It embeds the
