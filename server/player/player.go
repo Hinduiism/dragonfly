@@ -121,6 +121,11 @@ type Player struct {
 	*playerData
 }
 
+const (
+	defaultKnockBackForce         = 0.4
+	defaultKnockBackVerticalLimit = 0.4
+)
+
 func (p *Player) H() *world.EntityHandle {
 	return p.handle
 }
@@ -734,17 +739,21 @@ func (p *Player) Absorption() float64 {
 	return p.absorptionHealth
 }
 
-// KnockBack knocks the player back with a given force and height. A source is passed which indicates the
-// source of the velocity, typically the position of an attacking entity. The source is used to calculate the
-// direction which the entity should be knocked back in.
-func (p *Player) KnockBack(src mgl64.Vec3, force, height float64) {
+// KnockBack knocks the player back with a given force and vertical velocity limit. A source is passed which
+// indicates the source of the velocity, typically the position of an attacking entity. The source is used to
+// calculate the horizontal direction in which the player should be knocked back. The force is added both
+// horizontally and vertically before the resulting upward velocity is capped by verticalLimit.
+func (p *Player) KnockBack(src mgl64.Vec3, force, verticalLimit float64) {
 	if p.Dead() || !p.GameMode().AllowsTakingDamage() {
 		return
 	}
-	velocity := p.knockBackVelocity(src, force, height)
+	velocity, ok := knockBackVelocity(p.Position(), src, p.Velocity(), force, verticalLimit)
+	if !ok || !knockBackAllowed(p.Armour().KnockBackResistance(), rand.Float64()) {
+		return
+	}
 	if handler, ok := p.Handler().(KnockBackHandler); ok {
 		ctx := newContext(p)
-		handler.HandleKnockBack(ctx, src, force, height, &velocity)
+		handler.HandleKnockBack(ctx, src, force, verticalLimit, &velocity)
 		if ctx.Cancelled() {
 			return
 		}
@@ -752,13 +761,13 @@ func (p *Player) KnockBack(src mgl64.Vec3, force, height float64) {
 	p.SetVelocity(velocity)
 }
 
-// knockBack is an unexported function that is used to knock the player back. This function does not check if the player
-// can take damage or not.
+// knockBack applies Dragonfly's internal impact motion without checking whether the player can take damage. It is kept
+// separate from KnockBack because explosion impact has independent horizontal and vertical components.
 func (p *Player) knockBack(src mgl64.Vec3, force, height float64) {
-	p.SetVelocity(p.knockBackVelocity(src, force, height))
+	p.SetVelocity(p.impactVelocity(src, force, height))
 }
 
-func (p *Player) knockBackVelocity(src mgl64.Vec3, force, height float64) mgl64.Vec3 {
+func (p *Player) impactVelocity(src mgl64.Vec3, force, height float64) mgl64.Vec3 {
 	velocity := p.Position().Sub(src)
 	velocity[1] = 0
 
@@ -768,6 +777,28 @@ func (p *Player) knockBackVelocity(src mgl64.Vec3, force, height float64) mgl64.
 	velocity[1] = height
 
 	return velocity.Mul(1 - p.Armour().KnockBackResistance())
+}
+
+func knockBackVelocity(position, src, current mgl64.Vec3, force, verticalLimit float64) (mgl64.Vec3, bool) {
+	deltaX, deltaZ := position[0]-src[0], position[2]-src[2]
+	distance := math.Sqrt(deltaX*deltaX + deltaZ*deltaZ)
+	if distance <= 0 {
+		return mgl64.Vec3{}, false
+	}
+
+	inverseDistance := 1 / distance
+	velocity := current.Mul(0.5)
+	velocity[0] += deltaX * inverseDistance * force
+	velocity[1] += force
+	velocity[2] += deltaZ * inverseDistance * force
+	if velocity[1] > verticalLimit {
+		velocity[1] = verticalLimit
+	}
+	return velocity, true
+}
+
+func knockBackAllowed(resistance, roll float64) bool {
+	return roll > resistance
 }
 
 // setAttackImmunity sets the duration the player is immune to entity attacks.
@@ -1847,21 +1878,21 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 	}
 
 	var (
-		force, height  = 0.45, 0.3608
-		_, slowFalling = p.Effect(effect.SlowFalling)
-		_, blind       = p.Effect(effect.Blindness)
-		critical       = !p.Sprinting() && !p.Flying() && p.FallDistance() > 0 && !slowFalling && !blind
+		force, verticalLimit = defaultKnockBackForce, defaultKnockBackVerticalLimit
+		_, slowFalling       = p.Effect(effect.SlowFalling)
+		_, blind             = p.Effect(effect.Blindness)
+		critical             = !p.Sprinting() && !p.Flying() && p.FallDistance() > 0 && !slowFalling && !blind
 	)
 
 	i, _ := p.HeldItems()
 	if k, ok := i.Enchantment(enchantment.Knockback); ok {
 		inc := enchantment.Knockback.Force(k.Level())
 		force += inc
-		height += inc
+		verticalLimit += inc
 	}
 
 	ctx := newContext(p)
-	if p.Handler().HandleAttackEntity(ctx, e, &force, &height, &critical); ctx.Cancelled() {
+	if p.Handler().HandleAttackEntity(ctx, e, &force, &verticalLimit, &critical); ctx.Cancelled() {
 		return false
 	}
 	p.SwingArm()
@@ -1918,7 +1949,7 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 
 	p.Exhaust(0.1)
 
-	living.KnockBack(p.Position(), force, height)
+	living.KnockBack(p.Position(), force, verticalLimit)
 
 	if f, ok := i.Enchantment(enchantment.FireAspect); ok {
 		if flammable, ok := living.(entity.Flammable); ok {
@@ -2391,16 +2422,17 @@ func (p *Player) Position() mgl64.Vec3 {
 	return p.data.Pos
 }
 
-// Velocity returns the players current velocity. If there is an attached session, this will be empty.
+// Velocity returns the player's current velocity. For a player with an attached session, externally applied velocity is
+// retained until the next player tick so that consecutive motion changes may account for it.
 func (p *Player) Velocity() mgl64.Vec3 {
 	return p.data.Vel
 }
 
-// SetVelocity updates the player's velocity. If there is an attached session, this will just send
-// the velocity to the player session for the player to update.
+// SetVelocity updates the player's velocity. If there is an attached session, the velocity is also sent to the player
+// session for the client to apply.
 func (p *Player) SetVelocity(velocity mgl64.Vec3) {
+	p.data.Vel = velocity
 	if p.session() == session.Nop {
-		p.data.Vel = velocity
 		return
 	}
 	for _, v := range p.viewers() {

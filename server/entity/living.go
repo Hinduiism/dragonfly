@@ -30,10 +30,11 @@ type Living interface {
 	// added to the original health exceeds the entity's max health, Heal may not add the full amount, Heal
 	// returns the amount of health regenerated.
 	Heal(health float64, src world.HealingSource) float64
-	// KnockBack knocks the entity back with a given force and height. A source is passed which indicates the
-	// source of the velocity, typically the position of an attacking entity. The source is used to calculate
-	// the direction which the entity should be knocked back in.
-	KnockBack(src mgl64.Vec3, force, height float64)
+	// KnockBack knocks the entity back with a given force and vertical velocity limit. A source is passed which
+	// indicates the source of the velocity, typically the position of an attacking entity. The source is used to
+	// calculate horizontal direction. Force is added horizontally and vertically before upward velocity is capped
+	// by verticalLimit.
+	KnockBack(src mgl64.Vec3, force, verticalLimit float64)
 	// Velocity returns the players current velocity.
 	Velocity() mgl64.Vec3
 	// SetVelocity updates the entity's velocity.

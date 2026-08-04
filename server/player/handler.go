@@ -109,11 +109,12 @@ type Handler interface {
 	// and the target won't be knocked back.
 	// The entity attacked may also be immune when this method is called, in which case no damage and knock-
 	// back will be dealt.
-	// The knock back force and height is also provided which can be modified.
+	// The knock back force and vertical velocity limit are also provided and may be modified. Force is added both
+	// horizontally and vertically before the resulting upward velocity is capped by verticalLimit.
 	// The attack can be a critical attack, which would increase damage by a factor of 1.5 and
 	// spawn critical hit particles around the target entity. These particles will not be displayed
 	// if no damage is dealt.
-	HandleAttackEntity(ctx *Context, e world.Entity, force, height *float64, critical *bool)
+	HandleAttackEntity(ctx *Context, e world.Entity, force, verticalLimit *float64, critical *bool)
 	// HandleExperienceGain handles the player gaining experience. ctx.Cancel() may be called to cancel
 	// the gain.
 	// The amount is also provided which can be modified.
@@ -156,11 +157,11 @@ type Handler interface {
 	HandleDiagnostics(p *Player, d session.Diagnostics)
 }
 
-// KnockBackHandler may be implemented by a Handler to alter the final
-// velocity applied by Player.KnockBack. Calling ctx.Cancel suppresses only the
-// velocity update associated with this knockback.
+// KnockBackHandler may be implemented by a Handler to alter the final velocity applied by Player.KnockBack after
+// horizontal-distance and resistance checks pass. Calling ctx.Cancel suppresses only the velocity update associated
+// with this knockback.
 type KnockBackHandler interface {
-	HandleKnockBack(ctx *Context, source mgl64.Vec3, force, height float64, velocity *mgl64.Vec3)
+	HandleKnockBack(ctx *Context, source mgl64.Vec3, force, verticalLimit float64, velocity *mgl64.Vec3)
 }
 
 // NopHandler implements the Handler interface but does not execute any code when an event is called. The
