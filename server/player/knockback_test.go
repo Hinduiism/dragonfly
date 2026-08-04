@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/df-mc/dragonfly/server/item/inventory"
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 )
@@ -121,6 +122,20 @@ func TestSetVelocityRetainsMotion(t *testing.T) {
 	expected := mgl64.Vec3{0.25, 0.4, -0.1}
 	p.SetVelocity(expected)
 	assertVec3Close(t, p.Velocity(), expected)
+}
+
+func TestVelocitySeparatesClientAndServerMotion(t *testing.T) {
+	p := &Player{
+		data: &world.EntityData{Vel: mgl64.Vec3{0.1, -0.6, 0.2}},
+		playerData: &playerData{
+			s: &session.Session{},
+		},
+	}
+	assertVec3Close(t, p.Velocity(), mgl64.Vec3{})
+
+	p.externalVelocity = mgl64.Vec3{0.25, 0.4, -0.1}
+	p.externalVelocitySet = true
+	assertVec3Close(t, p.Velocity(), p.externalVelocity)
 }
 
 func TestKnockBackAllowed(t *testing.T) {

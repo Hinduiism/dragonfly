@@ -59,6 +59,8 @@ type playerData struct {
 
 	sneaking, sprinting, swimming, gliding, crawling, flying,
 	invisible, immobile, onGround, usingItem bool
+	externalVelocity    mgl64.Vec3
+	externalVelocitySet bool
 
 	sleeping bool
 	sleepPos cube.Pos
@@ -2319,6 +2321,8 @@ func (p *Player) teleport(pos mgl64.Vec3) {
 	}
 	p.data.Pos = pos
 	p.data.Vel = mgl64.Vec3{}
+	p.externalVelocity = mgl64.Vec3{}
+	p.externalVelocitySet = false
 	p.ResetFallDistance()
 }
 
@@ -2422,19 +2426,27 @@ func (p *Player) Position() mgl64.Vec3 {
 	return p.data.Pos
 }
 
-// Velocity returns the player's current velocity. For a player with an attached session, externally applied velocity is
-// retained until the next player tick so that consecutive motion changes may account for it.
+// Velocity returns the player's current velocity. For a player with an attached session, only velocity applied by the
+// server is returned. Client movement is tracked separately and must not influence server-applied motion.
 func (p *Player) Velocity() mgl64.Vec3 {
+	if p.session() != session.Nop {
+		if p.externalVelocitySet {
+			return p.externalVelocity
+		}
+		return mgl64.Vec3{}
+	}
 	return p.data.Vel
 }
 
 // SetVelocity updates the player's velocity. If there is an attached session, the velocity is also sent to the player
 // session for the client to apply.
 func (p *Player) SetVelocity(velocity mgl64.Vec3) {
-	p.data.Vel = velocity
 	if p.session() == session.Nop {
+		p.data.Vel = velocity
 		return
 	}
+	p.externalVelocity = velocity
+	p.externalVelocitySet = true
 	for _, v := range p.viewers() {
 		v.ViewEntityVelocity(p, velocity)
 	}
@@ -2740,6 +2752,8 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 		p.Move(m.Position().Sub(p.Position()), 0, 0)
 	} else {
 		p.data.Vel = mgl64.Vec3{}
+		p.externalVelocity = mgl64.Vec3{}
+		p.externalVelocitySet = false
 	}
 
 	p.portalTravel.StopPortalContact()
