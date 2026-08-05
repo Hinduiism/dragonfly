@@ -87,7 +87,7 @@ func (cfg Config) Apply(data *world.EntityData) {
 		alwaysShowNameTag:   true,
 		fireTicks:           conf.FireTicks,
 		fallDistance:        conf.FallDistance,
-		pocketMineMelee:     newPocketMineMeleeState(conf.Session != nil),
+		directMelee:         newDirectMeleeState(conf.Session != nil),
 	}
 	playerUUID := conf.UUID
 	pdata.portalTravel = &entity.PortalTravelComputer{

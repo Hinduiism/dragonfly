@@ -98,8 +98,8 @@ func playerAuthInputFeetPosition(pos mgl32.Vec3) mgl64.Vec3 {
 	return roundPlayerAuthInputPosition(vec32To64(pos).Sub(mgl64.Vec3{0, 1.62}))
 }
 
-// roundPlayerAuthInputPosition matches the four-decimal feet-position precision used by PocketMine before
-// movement and interactions are processed. math.Round uses half-away-from-zero semantics.
+// roundPlayerAuthInputPosition normalises client feet positions to four decimal places before movement and
+// interactions are processed. math.Round uses half-away-from-zero semantics.
 func roundPlayerAuthInputPosition(pos mgl64.Vec3) mgl64.Vec3 {
 	const precision = 10_000
 	for axis := range pos {

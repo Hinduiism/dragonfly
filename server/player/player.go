@@ -88,7 +88,7 @@ type playerData struct {
 	lastDamage  float64
 	immuneUntil time.Time
 
-	pocketMineMelee pocketMineMeleeState
+	directMelee directMeleeState
 
 	deathPos       *mgl64.Vec3
 	deathDimension world.Dimension
@@ -604,7 +604,7 @@ func (p *Player) fall(distance float64) {
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 	result := p.hurt(dmg, src, hurtOptions{})
-	p.observePocketMineDamage(dmg, result.policyAccepted)
+	p.observeDamageForMelee(dmg, result.policyAccepted)
 	return result.damage, result.vulnerable
 }
 
@@ -1014,7 +1014,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	p.sendFood()
 	p.Extinguish()
 	p.ResetFallDistance()
-	p.pocketMineMelee.noDamageTicks = pocketMineSpawnProtection
+	p.directMelee.noDamageTicks = directMeleeSpawnProtectionTicks
 
 	p.Handler().HandleRespawn(p, &pos, &w)
 
@@ -1025,7 +1025,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	// quit path; the fallback branches below share it.
 	restore := func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
-		np.pocketMineMelee.resumeAt(tx.CurrentTick())
+		np.directMelee.resumeAt(tx.CurrentTick())
 		if f != nil {
 			f(np)
 			return
@@ -1034,7 +1034,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	}
 	task := w.Do(func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
-		np.pocketMineMelee.resumeAt(tx.CurrentTick())
+		np.directMelee.resumeAt(tx.CurrentTick())
 		np.Teleport(pos)
 		np.session().SendRespawn(pos, p)
 		np.SetVisible()
@@ -1292,7 +1292,7 @@ func (p *Player) Jump() {
 			jumpVel = float64(e.Level()) / 10
 		}
 		p.data.Vel = mgl64.Vec3{0, jumpVel}
-		p.pocketMineMelee.recordJump(jumpVel, p.tx.CurrentTick())
+		p.directMelee.recordJump(jumpVel, p.tx.CurrentTick())
 	}
 	if p.Sprinting() {
 		p.Exhaust(0.2)
@@ -2312,7 +2312,7 @@ func (p *Player) teleport(pos mgl64.Vec3) {
 	}
 	p.data.Pos = pos
 	p.data.Vel = mgl64.Vec3{}
-	p.pocketMineMelee.clearMotion(p.tx.CurrentTick())
+	p.directMelee.clearMotion(p.tx.CurrentTick())
 	p.ResetFallDistance()
 }
 
@@ -2424,7 +2424,7 @@ func (p *Player) Velocity() mgl64.Vec3 {
 // SetVelocity updates the player's velocity. If there is an attached session, this will just send
 // the velocity to the player session for the player to update.
 func (p *Player) SetVelocity(velocity mgl64.Vec3) {
-	p.pocketMineMelee.recordMotion(velocity, p.tx.CurrentTick())
+	p.directMelee.recordMotion(velocity, p.tx.CurrentTick())
 	if p.session() == session.Nop {
 		p.data.Vel = velocity
 		return
@@ -2652,8 +2652,8 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	}
 	if p.prevWorld != nil && p.prevWorld != tx.World() {
 		// World tick values are local to each world. Rebase the private
-		// PocketMine counters so a transfer cannot charge an unrelated gap.
-		p.pocketMineMelee.resumeAt(current - 1)
+		// Direct-melee counters so a transfer cannot charge an unrelated gap.
+		p.directMelee.resumeAt(current - 1)
 	}
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
@@ -2741,7 +2741,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 		p.data.Vel = mgl64.Vec3{}
 	}
 
-	p.pocketMineMelee.tick(current)
+	p.directMelee.tick(current)
 	p.portalTravel.StopPortalContact()
 }
 

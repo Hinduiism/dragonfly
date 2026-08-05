@@ -10,7 +10,7 @@ import (
 // Fixtures in this file are locked to PocketMine-MP commit
 // 6a7cc02e9dff59b69241aa0bcffdb9903ce86beb.
 
-func TestPocketMineMeleeMotion(t *testing.T) {
+func TestMeleeKnockBackMotion(t *testing.T) {
 	tests := []struct {
 		name             string
 		victim, attacker mgl64.Vec3
@@ -42,7 +42,7 @@ func TestPocketMineMeleeMotion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := pocketMineMeleeMotion(tt.victim, tt.attacker, tt.previous, tt.force, tt.limit)
+			got, ok := meleeKnockBackMotion(tt.victim, tt.attacker, tt.previous, tt.force, tt.limit)
 			if ok != tt.wantMotion {
 				t.Fatalf("motion availability: got %v, want %v", ok, tt.wantMotion)
 			}
@@ -53,26 +53,26 @@ func TestPocketMineMeleeMotion(t *testing.T) {
 	}
 }
 
-func TestPocketMineMeleeGate(t *testing.T) {
-	state := newPocketMineMeleeState(false)
+func TestDirectMeleeGate(t *testing.T) {
+	state := newDirectMeleeState(false)
 	state.tick(100)
-	if got := state.classify(5); got != pocketMineDamageCold {
+	if got := state.classify(5); got != directMeleeCold {
 		t.Fatalf("initial decision: got %v, want cold", got)
 	}
-	state.commit(pocketMineDamageCold, 5)
+	state.commit(directMeleeCold, 5)
 
-	if got := state.classify(5); got != pocketMineDamageWarmRejected {
+	if got := state.classify(5); got != directMeleeWarmRejected {
 		t.Fatalf("equal-base decision: got %v, want warm rejected", got)
 	}
-	if got := state.classify(4); got != pocketMineDamageWarmRejected {
+	if got := state.classify(4); got != directMeleeWarmRejected {
 		t.Fatalf("weaker-base decision: got %v, want warm rejected", got)
 	}
-	if got := state.classify(6); got != pocketMineDamageWarmStronger {
+	if got := state.classify(6); got != directMeleeWarmStronger {
 		t.Fatalf("stronger-base decision: got %v, want warm stronger", got)
 	}
-	state.commit(pocketMineDamageWarmStronger, 6)
-	if state.attackTime != pocketMineAttackCooldownTicks {
-		t.Fatalf("stronger hit reset gate: got %d, want %d", state.attackTime, pocketMineAttackCooldownTicks)
+	state.commit(directMeleeWarmStronger, 6)
+	if state.attackTime != directMeleeCooldownTicks {
+		t.Fatalf("stronger hit reset gate: got %d, want %d", state.attackTime, directMeleeCooldownTicks)
 	}
 
 	state.tick(109)
@@ -80,16 +80,16 @@ func TestPocketMineMeleeGate(t *testing.T) {
 		t.Fatalf("gate at tick 9: got %d, want 1", state.attackTime)
 	}
 	state.tick(110)
-	if state.attackTime != 0 || state.classify(5) != pocketMineDamageCold {
+	if state.attackTime != 0 || state.classify(5) != directMeleeCold {
 		t.Fatalf("gate at tick 10: attackTime=%d decision=%v", state.attackTime, state.classify(5))
 	}
 }
 
-func TestPocketMineSpawnProtectionAndMotionLifecycle(t *testing.T) {
-	state := newPocketMineMeleeState(true)
+func TestSpawnProtectionAndMeleeMotionLifecycle(t *testing.T) {
+	state := newDirectMeleeState(true)
 	state.tick(20)
-	if state.noDamageTicks != pocketMineSpawnProtection-1 {
-		t.Fatalf("first protection tick: got %d, want %d", state.noDamageTicks, pocketMineSpawnProtection-1)
+	if state.noDamageTicks != directMeleeSpawnProtectionTicks-1 {
+		t.Fatalf("first protection tick: got %d, want %d", state.noDamageTicks, directMeleeSpawnProtectionTicks-1)
 	}
 	state.tick(79)
 	if state.noDamageTicks != 0 {
@@ -112,25 +112,25 @@ func TestPocketMineSpawnProtectionAndMotionLifecycle(t *testing.T) {
 	}
 }
 
-func TestPocketMineMeleeStateFreezesWhileDead(t *testing.T) {
-	state := newPocketMineMeleeState(false)
+func TestDirectMeleeStateFreezesWhileDead(t *testing.T) {
+	state := newDirectMeleeState(false)
 	state.tick(100)
-	state.commit(pocketMineDamageCold, 5)
+	state.commit(directMeleeCold, 5)
 
 	// Player.Tick does not call state.tick while dead. Respawn establishes a new
 	// baseline so those skipped ticks are not charged on the next living tick.
-	state.noDamageTicks = pocketMineSpawnProtection
+	state.noDamageTicks = directMeleeSpawnProtectionTicks
 	state.resumeAt(200)
 	state.tick(201)
-	if state.attackTime != pocketMineAttackCooldownTicks-1 {
-		t.Fatalf("dead ticks reduced attack gate: got %d, want %d", state.attackTime, pocketMineAttackCooldownTicks-1)
+	if state.attackTime != directMeleeCooldownTicks-1 {
+		t.Fatalf("dead ticks reduced attack gate: got %d, want %d", state.attackTime, directMeleeCooldownTicks-1)
 	}
-	if state.noDamageTicks != pocketMineSpawnProtection-1 {
-		t.Fatalf("dead ticks reduced spawn protection: got %d, want %d", state.noDamageTicks, pocketMineSpawnProtection-1)
+	if state.noDamageTicks != directMeleeSpawnProtectionTicks-1 {
+		t.Fatalf("dead ticks reduced spawn protection: got %d, want %d", state.noDamageTicks, directMeleeSpawnProtectionTicks-1)
 	}
 }
 
-func TestPocketMineWaterSurface(t *testing.T) {
+func TestWaterSurfaceHeight(t *testing.T) {
 	tests := []struct {
 		name    string
 		depth   int
@@ -144,7 +144,7 @@ func TestPocketMineWaterSurface(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := pocketMineWaterSurface(64, tt.depth, tt.falling)
+			got := waterSurfaceHeight(64, tt.depth, tt.falling)
 			if math.Abs(got-tt.want) > 1e-12 {
 				t.Fatalf("water surface: got %.15f, want %.15f", got, tt.want)
 			}
