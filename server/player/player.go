@@ -2388,6 +2388,7 @@ func (p *Player) Move(deltaPos mgl64.Vec3, deltaYaw, deltaPitch float64) {
 	} else if p.Sprinting() {
 		p.Exhaust(0.1 * horizontalVel.Len())
 	}
+	p.applyFrostWalker(deltaPos)
 }
 
 // Displace moves the player by a server-authoritative relative delta, clipped against block collision boxes.
@@ -2408,6 +2409,7 @@ func (p *Player) Displace(deltaPos mgl64.Vec3) {
 	p.checkBlockCollisions(deltaPos)
 	p.onGround = p.checkOnGround(deltaPos)
 	p.updateFallState(deltaPos[1])
+	p.applyFrostWalker(deltaPos)
 }
 
 // Position returns the current position of the player. It may be changed as the player moves or is moved

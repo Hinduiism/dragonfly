@@ -188,6 +188,12 @@ func (tx *Tx) Light(pos cube.Pos) uint8 {
 	return tx.light(pos)
 }
 
+// LightLevels returns the raw sky and block light levels at the position passed. Both values are in the range 0-15.
+// LightLevels does not load chunks: zeroes are returned for positions in chunks that are not currently loaded.
+func (tx *Tx) LightLevels(pos cube.Pos) (sky, block uint8) {
+	return tx.lightLevels(pos)
+}
+
 // SkyLight returns the skylight level at the position passed. This light level
 // is not influenced by blocks that emit light, such as torches. The light
 // value, similarly to Light, is a value in the range 0-15, where 0 means no

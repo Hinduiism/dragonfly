@@ -852,6 +852,24 @@ func (tx *Tx) light(pos cube.Pos) uint8 {
 	return c.Light(uint8(pos[0]), int16(pos[1]), uint8(pos[2]))
 }
 
+// lightLevels returns raw sky and block light without loading the column at pos.
+func (tx *Tx) lightLevels(pos cube.Pos) (sky, block uint8) {
+	w := tx.World()
+	if pos[1] < w.ra[0] {
+		return 0, 0
+	}
+	if pos[1] > w.ra[1] {
+		return 15, 0
+	}
+	c, ok := w.loadedChunk(chunkPosFromBlockPos(pos))
+	if !ok {
+		return 0, 0
+	}
+	x, y, z := uint8(pos[0]), int16(pos[1]), uint8(pos[2])
+	sub := c.SubChunk(y)
+	return sub.SkyLight(x&15, uint8(y&15), z&15), sub.BlockLight(x&15, uint8(y&15), z&15)
+}
+
 // skyLight returns the skylight level at the position passed. This light level
 // is not influenced by blocks that emit light, such as torches. The light
 // value, similarly to light, is a value in the range 0-15, where 0 means no

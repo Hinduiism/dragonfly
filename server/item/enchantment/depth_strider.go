@@ -33,7 +33,6 @@ func (depthStrider) Rarity() item.EnchantmentRarity {
 
 // CompatibleWithEnchantment ...
 func (depthStrider) CompatibleWithEnchantment(item.EnchantmentType) bool {
-	// TODO: Frost Walker
 	return true
 }
 

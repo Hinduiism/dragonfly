@@ -20,7 +20,7 @@ func (unbreaking) Name() string {
 
 // MaxLevel ...
 func (unbreaking) MaxLevel() int {
-	return 3
+	return 4
 }
 
 // Cost ...

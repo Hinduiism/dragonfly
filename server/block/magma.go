@@ -4,6 +4,7 @@ import (
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/enchantment"
+	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/world"
 )
 
@@ -23,7 +24,15 @@ func (Magma) EntityStepOn(_ cube.Pos, _ *world.Tx, e world.Entity) {
 	if fireProof, ok := e.(interface{ FireProof() bool }); ok && fireProof.FireProof() {
 		return
 	}
-	// TODO: Check for Frost Walker once the enchantment is implemented in Dragonfly.
+	if armoured, ok := e.(interface{ Armour() *inventory.Armour }); ok {
+		armour := armoured.Armour()
+		if armour != nil {
+			boots := armour.Boots()
+			if frostWalker, ok := boots.Enchantment(enchantment.FrostWalker); ok && frostWalker.Level() > 0 {
+				return
+			}
+		}
+	}
 	if sneaking, ok := e.(interface{ Sneaking() bool }); ok && sneaking.Sneaking() {
 		return
 	}
