@@ -88,6 +88,8 @@ type playerData struct {
 	lastDamage  float64
 	immuneUntil time.Time
 
+	pocketMineMelee pocketMineMeleeState
+
 	deathPos       *mgl64.Vec3
 	deathDimension world.Dimension
 
@@ -601,23 +603,47 @@ func (p *Player) fall(distance float64) {
 // final damage dealt to the Player and if the Player was vulnerable to this
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
+	result := p.hurt(dmg, src, hurtOptions{})
+	p.observePocketMineDamage(dmg, result.policyAccepted)
+	return result.damage, result.vulnerable
+}
+
+type hurtOptions struct {
+	continueThroughImmunity bool
+	deferHurtAction         bool
+}
+
+type hurtResult struct {
+	damage         float64
+	vulnerable     bool
+	policyAccepted bool
+}
+
+func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hurtResult {
 	if _, ok := p.Effect(effect.FireResistance); (ok && src.Fire()) || p.Dead() || !p.GameMode().AllowsTakingDamage() || dmg < 0 {
-		return 0, false
+		return hurtResult{}
 	}
 	totalDamage := p.FinalDamageFrom(dmg, src)
 	damageLeft := totalDamage
 
 	immune := time.Now().Before(p.immuneUntil)
+	immunitySuppressed := false
 	if immune {
 		if damageLeft -= p.lastDamage; damageLeft <= 0 {
-			return 0, false
+			if !opts.continueThroughImmunity {
+				return hurtResult{}
+			}
+			damageLeft, immunitySuppressed = 0, true
 		}
 	}
-
 	immunity := time.Second / 2
 	ctx := newContext(p)
 	if p.Handler().HandleHurt(ctx, &damageLeft, immune, &immunity, src); ctx.Cancelled() {
-		return 0, false
+		return hurtResult{}
+	}
+	result := hurtResult{policyAccepted: true}
+	if immunitySuppressed && damageLeft <= 0 {
+		return result
 	}
 	p.setAttackImmunity(immunity, totalDamage)
 
@@ -635,11 +661,11 @@ func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 		if _, ok := offHand.Item().(item.Totem); ok {
 			p.applyTotemEffects()
 			p.SetHeldItems(hand, offHand.Grow(-1))
-			return 0, false
+			return result
 		} else if _, ok := hand.Item().(item.Totem); ok {
 			p.applyTotemEffects()
 			p.SetHeldItems(hand.Grow(-1), offHand)
-			return 0, false
+			return result
 		}
 	}
 
@@ -663,8 +689,10 @@ func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 	}
 
 	pos := p.Position()
-	for _, viewer := range p.viewers() {
-		viewer.ViewEntityAction(p, entity.HurtAction{})
+	if !opts.deferHurtAction {
+		for _, viewer := range p.viewers() {
+			viewer.ViewEntityAction(p, entity.HurtAction{})
+		}
 	}
 	if src.Fire() {
 		p.tx.PlaySound(pos, sound.Burning{})
@@ -677,7 +705,8 @@ func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 	if p.Dead() {
 		p.kill(src)
 	}
-	return totalDamage, true
+	result.damage, result.vulnerable = totalDamage, true
+	return result
 }
 
 // applyTotemEffects is an unexported function that is used to handle totem effects.
@@ -985,6 +1014,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	p.sendFood()
 	p.Extinguish()
 	p.ResetFallDistance()
+	p.pocketMineMelee.noDamageTicks = pocketMineSpawnProtection
 
 	p.Handler().HandleRespawn(p, &pos, &w)
 
@@ -995,6 +1025,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	// quit path; the fallback branches below share it.
 	restore := func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
+		np.pocketMineMelee.resumeAt(tx.CurrentTick())
 		if f != nil {
 			f(np)
 			return
@@ -1003,6 +1034,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	}
 	task := w.Do(func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
+		np.pocketMineMelee.resumeAt(tx.CurrentTick())
 		np.Teleport(pos)
 		np.session().SendRespawn(pos, p)
 		np.SetVisible()
@@ -1260,6 +1292,7 @@ func (p *Player) Jump() {
 			jumpVel = float64(e.Level()) / 10
 		}
 		p.data.Vel = mgl64.Vec3{0, jumpVel}
+		p.pocketMineMelee.recordJump(jumpVel, p.tx.CurrentTick())
 	}
 	if p.Sprinting() {
 		p.Exhaust(0.2)
@@ -1825,6 +1858,9 @@ func (p *Player) UseItemOnEntity(e world.Entity) bool {
 // have.
 // If the player cannot reach the entity at its position, the method returns immediately.
 func (p *Player) AttackEntity(e world.Entity) bool {
+	if target, ok := e.(*Player); ok {
+		return p.attackPlayer(target)
+	}
 	if !p.canReach(e.Position()) {
 		return false
 	}
@@ -2276,6 +2312,7 @@ func (p *Player) teleport(pos mgl64.Vec3) {
 	}
 	p.data.Pos = pos
 	p.data.Vel = mgl64.Vec3{}
+	p.pocketMineMelee.clearMotion(p.tx.CurrentTick())
 	p.ResetFallDistance()
 }
 
@@ -2387,6 +2424,7 @@ func (p *Player) Velocity() mgl64.Vec3 {
 // SetVelocity updates the player's velocity. If there is an attached session, this will just send
 // the velocity to the player session for the player to update.
 func (p *Player) SetVelocity(velocity mgl64.Vec3) {
+	p.pocketMineMelee.recordMotion(velocity, p.tx.CurrentTick())
 	if p.session() == session.Nop {
 		p.data.Vel = velocity
 		return
@@ -2612,6 +2650,11 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	if p.Dead() {
 		return
 	}
+	if p.prevWorld != nil && p.prevWorld != tx.World() {
+		// World tick values are local to each world. Rebase the private
+		// PocketMine counters so a transfer cannot charge an unrelated gap.
+		p.pocketMineMelee.resumeAt(current - 1)
+	}
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
 		if _, ok := p.Armour().Helmet().Item().(item.TurtleShell); ok {
@@ -2698,6 +2741,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 		p.data.Vel = mgl64.Vec3{}
 	}
 
+	p.pocketMineMelee.tick(current)
 	p.portalTravel.StopPortalContact()
 }
 

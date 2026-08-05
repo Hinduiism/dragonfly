@@ -42,9 +42,7 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 		}
 	}
 
-	pk.Position = pk.Position.Sub(mgl32.Vec3{0, 1.62}) // Sub the base offset of players from the pos.
-
-	newPos := vec32To64(pk.Position)
+	newPos := playerAuthInputFeetPosition(pk.Position)
 	deltaPos, deltaYaw, deltaPitch := newPos.Sub(pos), float64(pk.Yaw)-yaw, float64(pk.Pitch)-pitch
 
 	// The PlayerAuthInput packet is sent every tick, so don't check for teleport if the position and rotation
@@ -68,6 +66,8 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 
 // handleActions handles the actions with the world that are present in the PlayerAuthInput packet.
 func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Session, tx *world.Tx, c Controllable) error {
+	h.handleInputFlags(pk.InputData, s, c)
+
 	if pk.InputData.Load(packet.InputFlagPerformItemInteraction) {
 		if err := h.handleUseItemData(pk.ItemInteractionData, s, c); err != nil {
 			return err
@@ -78,7 +78,6 @@ func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Ses
 			return err
 		}
 	}
-	h.handleInputFlags(pk.InputData, s, c)
 
 	if pk.InputData.Load(packet.InputFlagPerformItemStackRequest) {
 		s.inTransaction.Store(true)
@@ -93,6 +92,20 @@ func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Ses
 		}
 	}
 	return nil
+}
+
+func playerAuthInputFeetPosition(pos mgl32.Vec3) mgl64.Vec3 {
+	return roundPlayerAuthInputPosition(vec32To64(pos).Sub(mgl64.Vec3{0, 1.62}))
+}
+
+// roundPlayerAuthInputPosition matches the four-decimal feet-position precision used by PocketMine before
+// movement and interactions are processed. math.Round uses half-away-from-zero semantics.
+func roundPlayerAuthInputPosition(pos mgl64.Vec3) mgl64.Vec3 {
+	const precision = 10_000
+	for axis := range pos {
+		pos[axis] = math.Round(pos[axis]*precision) / precision
+	}
+	return pos
 }
 
 // handleInputFlags handles the toggleable input flags set in a PlayerAuthInput packet.
