@@ -13,6 +13,7 @@ import (
 
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/cmd"
+	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/item/recipe"
 	"github.com/df-mc/dragonfly/server/player/chat"
@@ -171,6 +172,9 @@ type Config struct {
 	HandleStop func(*world.Tx, Controllable)
 	// BlockRegistry overrides the registry used for network serialization. If nil, world.DefaultBlockRegistry is used.
 	BlockRegistry world.BlockRegistry
+	// EnchantingTablePolicy controls enchanting-table offer generation. If nil,
+	// normal Dragonfly behavior is used.
+	EnchantingTablePolicy *item.EnchantingTablePolicy
 }
 
 func (conf Config) New(conn Conn) *Session {

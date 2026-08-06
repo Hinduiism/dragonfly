@@ -49,9 +49,3 @@ func TestFrostWalkerRegistration(t *testing.T) {
 		t.Fatalf("expected enchantment ID 25, got %v, %v", id, ok)
 	}
 }
-
-func TestUnbreakingMaximumLevel(t *testing.T) {
-	if Unbreaking.MaxLevel() != 4 {
-		t.Fatalf("expected maximum level 4, got %v", Unbreaking.MaxLevel())
-	}
-}

@@ -568,13 +568,14 @@ func (srv *Server) createPlayer(id uuid.UUID, conn session.Conn, conf player.Con
 	srv.pwg.Add(1)
 
 	s := session.Config{
-		Log:            srv.conf.Log,
-		MaxChunkRadius: srv.conf.MaxChunkRadius,
-		EmoteChatMuted: srv.conf.MuteEmoteChat,
-		JoinMessage:    srv.conf.JoinMessage,
-		QuitMessage:    srv.conf.QuitMessage,
-		HandleStop:     srv.handleSessionClose,
-		BlockRegistry:  w.BlockRegistry(),
+		Log:                   srv.conf.Log,
+		MaxChunkRadius:        srv.conf.MaxChunkRadius,
+		EmoteChatMuted:        srv.conf.MuteEmoteChat,
+		JoinMessage:           srv.conf.JoinMessage,
+		QuitMessage:           srv.conf.QuitMessage,
+		HandleStop:            srv.handleSessionClose,
+		BlockRegistry:         w.BlockRegistry(),
+		EnchantingTablePolicy: srv.conf.EnchantingTablePolicy,
 	}.New(conn)
 
 	conf.Name = conn.IdentityData().DisplayName
