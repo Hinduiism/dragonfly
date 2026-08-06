@@ -86,6 +86,17 @@ func TestNewEnchantingOfferPricing(t *testing.T) {
 	if overrideOffer.requirement != 8 || overrideOffer.experienceCost != 8 || overrideOffer.lapisCost != 3 {
 		t.Fatalf("unexpected override pricing: %+v", overrideOffer)
 	}
+
+	zeroPolicy := mustEnchantingPolicy(t, item.EnchantingTableRule{
+		Enchantment:            enchantment.Protection,
+		MaxLevel:               2,
+		Weight:                 10,
+		OverrideExperienceCost: true,
+	})
+	zeroOffer := newEnchantingOffer(2, 30, []item.Enchantment{primary}, zeroPolicy)
+	if zeroOffer.requirement != 0 || zeroOffer.experienceCost != 0 || zeroOffer.lapisCost != 3 {
+		t.Fatalf("unexpected zero-cost override pricing: %+v", zeroOffer)
+	}
 }
 
 func TestSelectEnchantingOffer(t *testing.T) {

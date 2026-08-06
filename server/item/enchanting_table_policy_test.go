@@ -12,10 +12,11 @@ import (
 
 func TestEnchantingTablePolicy(t *testing.T) {
 	rules := []item.EnchantingTableRule{{
-		Enchantment:    enchantment.Protection,
-		MaxLevel:       2,
-		Weight:         10,
-		ExperienceCost: 7,
+		Enchantment:            enchantment.Protection,
+		MaxLevel:               2,
+		Weight:                 10,
+		ExperienceCost:         7,
+		OverrideExperienceCost: true,
 	}}
 	policy, err := item.NewEnchantingTablePolicy(rules)
 	if err != nil {
@@ -30,11 +31,34 @@ func TestEnchantingTablePolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("expected protection rule")
 	}
-	if rule.MaxLevel != 2 || rule.Weight != 10 || rule.ExperienceCost != 7 {
+	if rule.MaxLevel != 2 || rule.Weight != 10 || rule.ExperienceCost != 7 || !rule.OverrideExperienceCost {
 		t.Fatalf("unexpected copied rule: %+v", rule)
 	}
 	if _, ok := policy.Rule(enchantment.FireProtection); ok {
 		t.Fatal("unexpected missing rule")
+	}
+}
+
+func TestEnchantingTablePolicyExperienceCostOverride(t *testing.T) {
+	policy, err := item.NewEnchantingTablePolicy([]item.EnchantingTableRule{
+		{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1},
+		{Enchantment: enchantment.FireProtection, MaxLevel: 1, Weight: 1, ExperienceCost: 7},
+		{Enchantment: enchantment.FeatherFalling, MaxLevel: 1, Weight: 1, OverrideExperienceCost: true},
+	})
+	if err != nil {
+		t.Fatalf("new policy: %v", err)
+	}
+	defaultRule, _ := policy.Rule(enchantment.Protection)
+	positiveRule, _ := policy.Rule(enchantment.FireProtection)
+	zeroRule, _ := policy.Rule(enchantment.FeatherFalling)
+	if defaultRule.OverrideExperienceCost {
+		t.Fatal("omitted experience cost should retain normal table pricing")
+	}
+	if !positiveRule.OverrideExperienceCost || positiveRule.ExperienceCost != 7 {
+		t.Fatalf("positive experience cost should enable its override: %+v", positiveRule)
+	}
+	if !zeroRule.OverrideExperienceCost || zeroRule.ExperienceCost != 0 {
+		t.Fatalf("explicit zero override should remain enabled: %+v", zeroRule)
 	}
 }
 

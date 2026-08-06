@@ -9,10 +9,11 @@ import (
 // EnchantingTableRule configures how an enchantment may be selected by an
 // enchanting table.
 type EnchantingTableRule struct {
-	Enchantment    EnchantmentType
-	MaxLevel       int
-	Weight         int
-	ExperienceCost int
+	Enchantment            EnchantmentType
+	MaxLevel               int
+	Weight                 int
+	ExperienceCost         int
+	OverrideExperienceCost bool
 }
 
 // EnchantingTablePolicy is an immutable set of rules used to generate
@@ -23,9 +24,11 @@ type EnchantingTablePolicy struct {
 }
 
 // NewEnchantingTablePolicy validates rules and returns an immutable policy. An
-// empty policy disables all enchanting-table offers. ExperienceCost may be
-// zero to preserve the table's normal generated requirement and slot-based
-// payment.
+// empty policy disables all enchanting-table offers. If
+// OverrideExperienceCost is false, the table retains its normal generated
+// requirement and slot-based payment. A non-zero ExperienceCost enables the
+// override automatically for backwards compatibility; set
+// OverrideExperienceCost explicitly to override the cost with zero.
 func NewEnchantingTablePolicy(rules []EnchantingTableRule) (*EnchantingTablePolicy, error) {
 	policy := &EnchantingTablePolicy{rules: make(map[EnchantmentType]EnchantingTableRule, len(rules))}
 	var totalWeight int
@@ -51,6 +54,9 @@ func NewEnchantingTablePolicy(rules []EnchantingTableRule) (*EnchantingTablePoli
 		}
 		if rule.ExperienceCost < 0 || rule.ExperienceCost > math.MaxUint8 {
 			return nil, fmt.Errorf("enchanting table enchantment %q experience cost must be between 0 and 255, got %d", rule.Enchantment.Name(), rule.ExperienceCost)
+		}
+		if rule.ExperienceCost != 0 {
+			rule.OverrideExperienceCost = true
 		}
 		if totalWeight > math.MaxInt-rule.Weight {
 			return nil, fmt.Errorf("enchanting table rule weights overflow int")
