@@ -11,18 +11,22 @@ import (
 )
 
 func TestEnchantingTablePolicy(t *testing.T) {
+	costs := []item.EnchantingTableLevelCost{
+		{Level: 1, ExperienceCost: 7},
+		{Level: 2, ExperienceCost: 12},
+	}
 	rules := []item.EnchantingTableRule{{
-		Enchantment:            enchantment.Protection,
-		MaxLevel:               2,
-		Weight:                 10,
-		ExperienceCost:         7,
-		OverrideExperienceCost: true,
+		Enchantment:     enchantment.Protection,
+		MaxLevel:        2,
+		Weight:          10,
+		ExperienceCosts: costs,
 	}}
 	policy, err := item.NewEnchantingTablePolicy(rules)
 	if err != nil {
 		t.Fatalf("new policy: %v", err)
 	}
 	rules[0].MaxLevel = 1
+	costs[0].ExperienceCost = 99
 
 	if policy.Len() != 1 {
 		t.Fatalf("expected one rule, got %d", policy.Len())
@@ -31,8 +35,17 @@ func TestEnchantingTablePolicy(t *testing.T) {
 	if !ok {
 		t.Fatal("expected protection rule")
 	}
-	if rule.MaxLevel != 2 || rule.Weight != 10 || rule.ExperienceCost != 7 || !rule.OverrideExperienceCost {
+	if rule.MaxLevel != 2 || rule.Weight != 10 {
 		t.Fatalf("unexpected copied rule: %+v", rule)
+	}
+	if cost, ok := rule.ExperienceCost(1); !ok || cost != 7 {
+		t.Fatalf("unexpected level-one cost: %d, %t", cost, ok)
+	}
+	if cost, ok := rule.ExperienceCost(2); !ok || cost != 12 {
+		t.Fatalf("unexpected level-two cost: %d, %t", cost, ok)
+	}
+	if _, ok := rule.ExperienceCost(0); ok {
+		t.Fatal("unexpected out-of-range experience cost")
 	}
 	if _, ok := policy.Rule(enchantment.FireProtection); ok {
 		t.Fatal("unexpected missing rule")
@@ -42,8 +55,8 @@ func TestEnchantingTablePolicy(t *testing.T) {
 func TestEnchantingTablePolicyExperienceCostOverride(t *testing.T) {
 	policy, err := item.NewEnchantingTablePolicy([]item.EnchantingTableRule{
 		{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1},
-		{Enchantment: enchantment.FireProtection, MaxLevel: 1, Weight: 1, ExperienceCost: 7},
-		{Enchantment: enchantment.FeatherFalling, MaxLevel: 1, Weight: 1, OverrideExperienceCost: true},
+		{Enchantment: enchantment.FireProtection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 7}}},
+		{Enchantment: enchantment.FeatherFalling, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 0}}},
 	})
 	if err != nil {
 		t.Fatalf("new policy: %v", err)
@@ -51,14 +64,14 @@ func TestEnchantingTablePolicyExperienceCostOverride(t *testing.T) {
 	defaultRule, _ := policy.Rule(enchantment.Protection)
 	positiveRule, _ := policy.Rule(enchantment.FireProtection)
 	zeroRule, _ := policy.Rule(enchantment.FeatherFalling)
-	if defaultRule.OverrideExperienceCost {
+	if _, ok := defaultRule.ExperienceCost(1); ok {
 		t.Fatal("omitted experience cost should retain normal table pricing")
 	}
-	if !positiveRule.OverrideExperienceCost || positiveRule.ExperienceCost != 7 {
-		t.Fatalf("positive experience cost should enable its override: %+v", positiveRule)
+	if cost, ok := positiveRule.ExperienceCost(1); !ok || cost != 7 {
+		t.Fatalf("positive experience cost should enable its override: %d, %t", cost, ok)
 	}
-	if !zeroRule.OverrideExperienceCost || zeroRule.ExperienceCost != 0 {
-		t.Fatalf("explicit zero override should remain enabled: %+v", zeroRule)
+	if cost, ok := zeroRule.ExperienceCost(1); !ok || cost != 0 {
+		t.Fatalf("explicit zero override should remain enabled: %d, %t", cost, ok)
 	}
 }
 
@@ -95,8 +108,11 @@ func TestEnchantingTablePolicyRejectsInvalidRules(t *testing.T) {
 		{name: "level zero", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 0, Weight: 1}}, want: "maximum level"},
 		{name: "level high", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 256, Weight: 1}}, want: "maximum level"},
 		{name: "weight zero", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 0}}, want: "weight must be positive"},
-		{name: "cost negative", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCost: -1}}, want: "experience cost"},
-		{name: "cost high", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCost: 256}}, want: "experience cost"},
+		{name: "cost level zero", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 0, ExperienceCost: 1}}}}, want: "outside 1..1"},
+		{name: "cost level above maximum", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 2, ExperienceCost: 1}}}}, want: "outside 1..1"},
+		{name: "cost duplicate level", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 1}, {Level: 1, ExperienceCost: 2}}}}, want: "configured more than once"},
+		{name: "cost negative", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: -1}}}}, want: "experience cost"},
+		{name: "cost high", rules: []item.EnchantingTableRule{{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: 1, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 256}}}}, want: "experience cost"},
 		{name: "weight overflow", rules: []item.EnchantingTableRule{
 			{Enchantment: enchantment.Protection, MaxLevel: 1, Weight: math.MaxInt},
 			{Enchantment: enchantment.FireProtection, MaxLevel: 1, Weight: 1},

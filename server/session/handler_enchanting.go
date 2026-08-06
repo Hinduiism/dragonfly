@@ -194,8 +194,11 @@ func (s *Session) determineAvailableEnchantments(tx *world.Tx, c Controllable, p
 func newEnchantingOffer(slot, levelCost int, enchantments []item.Enchantment, policy *item.EnchantingTablePolicy) enchantingOffer {
 	requirement, experienceCost := levelCost, slot+1
 	if len(enchantments) > 0 && policy != nil {
-		if rule, ok := policy.Rule(enchantments[0].Type()); ok && rule.OverrideExperienceCost {
-			requirement, experienceCost = rule.ExperienceCost, rule.ExperienceCost
+		primary := enchantments[0]
+		if rule, ok := policy.Rule(primary.Type()); ok {
+			if configuredCost, overridden := rule.ExperienceCost(primary.Level()); overridden {
+				requirement, experienceCost = configuredCost, configuredCost
+			}
 		}
 	}
 	return enchantingOffer{

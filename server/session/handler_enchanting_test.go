@@ -79,23 +79,31 @@ func TestNewEnchantingOfferPricing(t *testing.T) {
 	}
 
 	overridePolicy := mustEnchantingPolicy(t,
-		item.EnchantingTableRule{Enchantment: enchantment.Protection, MaxLevel: 2, Weight: 10, ExperienceCost: 8},
-		item.EnchantingTableRule{Enchantment: enchantment.Unbreaking, MaxLevel: 5, Weight: 5, ExperienceCost: 99},
+		item.EnchantingTableRule{Enchantment: enchantment.Protection, MaxLevel: 2, Weight: 10, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 8}, {Level: 2, ExperienceCost: 14}}},
+		item.EnchantingTableRule{Enchantment: enchantment.Unbreaking, MaxLevel: 5, Weight: 5, ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 99}}},
 	)
 	overrideOffer := newEnchantingOffer(2, 30, []item.Enchantment{primary, bonus}, overridePolicy)
 	if overrideOffer.requirement != 8 || overrideOffer.experienceCost != 8 || overrideOffer.lapisCost != 3 {
 		t.Fatalf("unexpected override pricing: %+v", overrideOffer)
 	}
+	levelTwoOffer := newEnchantingOffer(2, 30, []item.Enchantment{item.NewEnchantment(enchantment.Protection, 2)}, overridePolicy)
+	if levelTwoOffer.requirement != 14 || levelTwoOffer.experienceCost != 14 || levelTwoOffer.lapisCost != 3 {
+		t.Fatalf("unexpected level-two override pricing: %+v", levelTwoOffer)
+	}
 
 	zeroPolicy := mustEnchantingPolicy(t, item.EnchantingTableRule{
-		Enchantment:            enchantment.Protection,
-		MaxLevel:               2,
-		Weight:                 10,
-		OverrideExperienceCost: true,
+		Enchantment:     enchantment.Protection,
+		MaxLevel:        2,
+		Weight:          10,
+		ExperienceCosts: []item.EnchantingTableLevelCost{{Level: 1, ExperienceCost: 0}},
 	})
 	zeroOffer := newEnchantingOffer(2, 30, []item.Enchantment{primary}, zeroPolicy)
 	if zeroOffer.requirement != 0 || zeroOffer.experienceCost != 0 || zeroOffer.lapisCost != 3 {
 		t.Fatalf("unexpected zero-cost override pricing: %+v", zeroOffer)
+	}
+	missingLevelOffer := newEnchantingOffer(1, 17, []item.Enchantment{item.NewEnchantment(enchantment.Protection, 2)}, zeroPolicy)
+	if missingLevelOffer.requirement != 17 || missingLevelOffer.experienceCost != 2 || missingLevelOffer.lapisCost != 2 {
+		t.Fatalf("unexpected missing-level fallback pricing: %+v", missingLevelOffer)
 	}
 }
 
