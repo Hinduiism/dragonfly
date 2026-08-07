@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/world/chunk"
 	"github.com/go-gl/mathgl/mgl64"
 )
 
@@ -144,6 +145,94 @@ func TestSynchronousAdvanceTickTicksViewerlessBlockEntities(t *testing.T) {
 	if tb.ticks == 0 {
 		t.Fatal("expected block entity to tick")
 	}
+}
+
+func TestUnloadChunkIfUnusedAbsent(t *testing.T) {
+	w := Config{Synchronous: true}.New()
+	defer w.Close()
+
+	w.Do(func(tx *Tx) {
+		if tx.UnloadChunkIfUnused(ChunkPos{4, -7}) {
+			t.Fatal("expected absent chunk not to unload")
+		}
+	})
+}
+
+func TestUnloadChunkIfUnusedViewed(t *testing.T) {
+	w := Config{Synchronous: true}.New()
+	defer w.Close()
+
+	pos := ChunkPos{2, 3}
+	loader := NewLoader(0, w, NopViewer{})
+	w.Do(func(tx *Tx) {
+		loader.Move(tx, mgl64.Vec3{float64(pos[0] << 4), 0, float64(pos[1] << 4)})
+		loader.Load(tx, 1)
+		if _, ok := loader.Chunk(pos); !ok {
+			t.Fatal("expected loader to own candidate chunk")
+		}
+		if tx.UnloadChunkIfUnused(pos) {
+			t.Fatal("expected viewed chunk not to unload")
+		}
+		if _, ok := w.loadedChunk(pos); !ok {
+			t.Fatal("expected viewed chunk to remain loaded")
+		}
+
+		loader.Close(tx)
+		if !tx.UnloadChunkIfUnused(pos) {
+			t.Fatal("expected released chunk to unload")
+		}
+	})
+}
+
+func TestUnloadChunkIfUnusedModified(t *testing.T) {
+	provider := &countingStoreProvider{}
+	w := Config{Provider: provider, Synchronous: true}.New()
+	defer w.Close()
+
+	pos := ChunkPos{-3, 9}
+	w.Do(func(tx *Tx) {
+		col := tx.chunk(pos)
+		col.modified = true
+		if !tx.UnloadChunkIfUnused(pos) {
+			t.Fatal("expected unused modified chunk to unload")
+		}
+		if _, ok := w.loadedChunk(pos); ok {
+			t.Fatal("expected unloaded chunk to be evicted")
+		}
+		if tx.UnloadChunkIfUnused(pos) {
+			t.Fatal("expected repeated unload to report absent chunk")
+		}
+	})
+	if got := provider.stores.Load(); got != 1 {
+		t.Fatalf("expected one provider store, got %d", got)
+	}
+}
+
+func TestUnloadChunkIfUnusedUnmodified(t *testing.T) {
+	provider := &countingStoreProvider{}
+	w := Config{Provider: provider, Synchronous: true}.New()
+	defer w.Close()
+
+	pos := ChunkPos{8, 1}
+	w.Do(func(tx *Tx) {
+		tx.chunk(pos)
+		if !tx.UnloadChunkIfUnused(pos) {
+			t.Fatal("expected unused unmodified chunk to unload")
+		}
+	})
+	if got := provider.stores.Load(); got != 0 {
+		t.Fatalf("expected no provider store, got %d", got)
+	}
+}
+
+type countingStoreProvider struct {
+	NopProvider
+	stores atomic.Int64
+}
+
+func (p *countingStoreProvider) StoreColumn(ChunkPos, Dimension, *chunk.Column) error {
+	p.stores.Add(1)
+	return nil
 }
 
 type testEntityConfig struct{}
