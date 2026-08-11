@@ -186,7 +186,7 @@ func (p *Player) attackPlayer(target *Player) bool {
 
 	force, verticalLimit := directMeleeForce, directMeleeVerticalLimit
 	critical := p.meleeCritical()
-	ctx := newContext(p)
+	ctx := NewEventContext(p.tx, p)
 	if p.Handler().HandleAttackEntity(ctx, target, &force, &verticalLimit, &critical); ctx.Cancelled() {
 		p.SwingArm()
 		p.tx.PlaySound(soundPos, sound.Attack{})
