@@ -495,7 +495,13 @@ func (srv *Server) finaliseConn(ctx context.Context, conn session.Conn, l Listen
 // may later be modified if the player was saved in the player provider of the
 // server.
 func (srv *Server) defaultGameData() minecraft.GameData {
-	gm, _ := world.GameModeID(srv.world.DefaultGameMode())
+	mode := srv.world.DefaultGameMode()
+	gm, _ := world.GameModeID(mode)
+	if !mode.Visible() && !mode.HasCollision() {
+		// Dragonfly's stable spectator ID is 3, but Bedrock's native spectator
+		// game type uses protocol ID 6.
+		gm = packet.GameTypeSpectator
+	}
 	return minecraft.GameData{
 		// Entity runtime/unique ID for the player itself is always 1 in df.
 		EntityUniqueID:  1,
