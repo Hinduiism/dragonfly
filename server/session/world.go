@@ -146,13 +146,20 @@ func (s *Session) ViewEntity(e world.Entity) {
 		vel = v.Velocity()
 	}
 
+	s.writeAddActor(runtimeID, id, metadata, e.Position(), vel, e.Rotation())
+}
+
+// writeAddActor writes an ordinary actor spawn using Dragonfly's canonical
+// position and rotation encoding.
+func (s *Session) writeAddActor(runtimeID uint64, id string, metadata protocol.EntityMetadata, pos, velocity mgl64.Vec3, rot cube.Rotation) {
+	yaw, pitch := rot.Elem()
 	s.writePacket(&packet.AddActor{
 		EntityUniqueID:  int64(runtimeID),
 		EntityRuntimeID: runtimeID,
 		EntityType:      id,
 		EntityMetadata:  metadata,
-		Position:        vec64To32(e.Position()),
-		Velocity:        vec64To32(vel),
+		Position:        vec64To32(pos),
+		Velocity:        vec64To32(velocity),
 		Pitch:           float32(pitch),
 		Yaw:             float32(yaw),
 		HeadYaw:         float32(yaw),
@@ -214,6 +221,11 @@ func (s *Session) ViewEntityDisplacement(e world.Entity, pos mgl64.Vec3, rot cub
 }
 
 func (s *Session) viewEntityAbsoluteMovement(id uint64, e world.Entity, pos mgl64.Vec3, rot cube.Rotation, onGround, authoritative bool) {
+	s.writeActorAbsoluteMovement(id, pos.Add(entityOffset(e)), rot, onGround, authoritative)
+}
+
+// writeActorAbsoluteMovement writes an absolute actor movement packet.
+func (s *Session) writeActorAbsoluteMovement(id uint64, pos mgl64.Vec3, rot cube.Rotation, onGround, authoritative bool) {
 	flags := byte(0)
 	if onGround {
 		flags |= packet.MoveFlagOnGround
@@ -223,7 +235,7 @@ func (s *Session) viewEntityAbsoluteMovement(id uint64, e world.Entity, pos mgl6
 	}
 	s.writePacket(&packet.MoveActorAbsolute{
 		EntityRuntimeID: id,
-		Position:        vec64To32(pos.Add(entityOffset(e))),
+		Position:        vec64To32(pos),
 		Rotation:        vec64To32(mgl64.Vec3{rot.Pitch(), rot.Yaw(), rot.Yaw()}),
 		Flags:           flags,
 	})
