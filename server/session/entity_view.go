@@ -33,6 +33,7 @@ type EntityViewConfig struct {
 	Velocity          mgl64.Vec3
 	Bounds            cube.BBox
 	Scale             float64
+	Variant           int32
 	Immobile          bool
 	NameTag           string
 	AlwaysShowNameTag bool
@@ -49,6 +50,7 @@ type entityViewState struct {
 	position mgl64.Vec3
 	rotation cube.Rotation
 	onGround bool
+	variant  int32
 }
 
 // AddEntityView adds a visual-only entity to the session. Callers outside the
@@ -76,7 +78,7 @@ func (s *Session) AddEntityView(conf EntityViewConfig) (*EntityView, error) {
 	id := s.currentEntityRuntimeID
 	s.entityMutex.Unlock()
 
-	s.entityViews[id] = entityViewState{position: conf.Position, rotation: conf.Rotation}
+	s.entityViews[id] = entityViewState{position: conf.Position, rotation: conf.Rotation, variant: conf.Variant}
 	s.writeAddActor(id, conf.Identifier, entityViewMetadata(conf), conf.Position, conf.Velocity, conf.Rotation)
 	return &EntityView{s: s, id: id}, nil
 }
@@ -112,6 +114,34 @@ func (v *EntityView) move(pos mgl64.Vec3, rot cube.Rotation, onGround, teleport 
 	state.position, state.rotation, state.onGround = pos, rot, onGround
 	s.entityViews[v.id] = state
 	s.writeActorAbsoluteMovement(v.id, pos, rot, onGround, teleport)
+	return nil
+}
+
+// SetVariant changes the variant exposed to the client as query.variant.
+// Repeated calls with the current variant do not send another packet.
+func (v *EntityView) SetVariant(variant int32) error {
+	if v == nil || v.s == nil {
+		return ErrEntityViewClosed
+	}
+
+	s := v.s
+	s.entityViewsMu.Lock()
+	defer s.entityViewsMu.Unlock()
+	state, ok := s.entityViews[v.id]
+	if !ok || s.closed() {
+		return ErrEntityViewClosed
+	}
+	if state.variant == variant {
+		return nil
+	}
+	state.variant = variant
+	s.entityViews[v.id] = state
+	s.writePacket(&packet.SetActorData{
+		EntityRuntimeID: v.id,
+		EntityMetadata: protocol.EntityMetadata{
+			protocol.EntityDataKeyVariant: variant,
+		},
+	})
 	return nil
 }
 
@@ -187,6 +217,7 @@ func entityViewMetadata(conf EntityViewConfig) protocol.EntityMetadata {
 	m[protocol.EntityDataKeyEffectAmbience] = byte(0)
 	m[protocol.EntityDataKeyColorIndex] = byte(0)
 	m[protocol.EntityDataKeyScale] = float32(conf.Scale)
+	m[protocol.EntityDataKeyVariant] = conf.Variant
 	m.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagHasGravity)
 	m.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagClimb)
 	if conf.Immobile {

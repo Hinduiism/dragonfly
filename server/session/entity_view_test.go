@@ -40,6 +40,9 @@ func TestEntityViewLifecycle(t *testing.T) {
 	if got := add.EntityMetadata[protocol.EntityDataKeyScale]; got != float32(1) {
 		t.Fatalf("metadata scale: got %v, want 1", got)
 	}
+	if got := add.EntityMetadata[protocol.EntityDataKeyVariant]; got != conf.Variant {
+		t.Fatalf("metadata variant: got %v, want %v", got, conf.Variant)
+	}
 	if !add.EntityMetadata.Flag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagNoAI) {
 		t.Fatal("metadata does not mark the view as immobile")
 	}
@@ -74,6 +77,18 @@ func TestEntityViewLifecycle(t *testing.T) {
 		t.Fatalf("unexpected teleport packet: %#v", teleport)
 	}
 
+	if err := view.SetVariant(conf.Variant); err != nil {
+		t.Fatalf("repeat initial variant: %v", err)
+	}
+	assertNoEntityViewPacket(t, s)
+	if err := view.SetVariant(73); err != nil {
+		t.Fatalf("set variant: %v", err)
+	}
+	data := packetOf[*packet.SetActorData](t, s)
+	if data.EntityRuntimeID != view.id || data.EntityMetadata[protocol.EntityDataKeyVariant] != int32(73) {
+		t.Fatalf("unexpected actor data packet: %#v", data)
+	}
+
 	if err := view.Close(); err != nil {
 		t.Fatalf("close entity view: %v", err)
 	}
@@ -87,6 +102,9 @@ func TestEntityViewLifecycle(t *testing.T) {
 	assertNoEntityViewPacket(t, s)
 	if err := view.Move(movePos, moveRot, false); !errors.Is(err, ErrEntityViewClosed) {
 		t.Fatalf("move closed view: got %v, want ErrEntityViewClosed", err)
+	}
+	if err := view.SetVariant(1); !errors.Is(err, ErrEntityViewClosed) {
+		t.Fatalf("set variant on closed view: got %v, want ErrEntityViewClosed", err)
 	}
 }
 
@@ -279,6 +297,7 @@ func testEntityViewConfig() EntityViewConfig {
 		Rotation:          cube.Rotation{10, 20},
 		Velocity:          mgl64.Vec3{0.1, 0.2, 0.3},
 		Bounds:            cube.Box(-0.5, 0, -0.5, 0.5, 2, 0.5),
+		Variant:           7,
 		Immobile:          true,
 		NameTag:           "Test View",
 		AlwaysShowNameTag: true,
