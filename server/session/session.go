@@ -64,6 +64,9 @@ type Session struct {
 	entityViewsMu sync.Mutex
 	entityViews   map[uint64]entityViewState
 
+	environmentViewsMu sync.Mutex
+	environmentViews   environmentViewState
+
 	// heldSlot is the slot in the inventory that the controllable is holding.
 	heldSlot                     *uint32
 	inv, offHand, enderChest, ui *inventory.Inventory
@@ -313,6 +316,7 @@ func (s *Session) Close(tx *world.Tx, c Controllable) {
 // manages.
 func (s *Session) close(tx *world.Tx, c Controllable) {
 	s.clearEntityViews()
+	s.clearEnvironmentViews()
 	if tx != nil {
 		c.MoveItemsToInventory()
 		s.closeCurrentContainer(tx, false)
@@ -519,6 +523,7 @@ func (s *Session) sendChunks(tx *world.Tx, c Controllable) {
 // handleWorldSwitch handles the player of the Session switching worlds.
 func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable) {
 	s.clearEntityViews()
+	s.clearEnvironmentViews()
 	if s.conn.ClientCacheEnabled() {
 		s.blobMu.Lock()
 		s.blobs = map[uint64][]byte{}

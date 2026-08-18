@@ -648,7 +648,8 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	totalDamage := p.FinalDamageFrom(dmg, src)
 	damageLeft := totalDamage
 
-	immune := time.Now().Before(p.immuneUntil)
+	ignoreImmunity := ignoresAttackImmunity(src)
+	immune := !ignoreImmunity && time.Now().Before(p.immuneUntil)
 	immunitySuppressed := false
 	if immune {
 		if damageLeft -= p.lastDamage; damageLeft <= 0 {
@@ -667,9 +668,11 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	if immunitySuppressed && damageLeft <= 0 {
 		return result
 	}
-	p.setAttackImmunity(immunity, totalDamage)
+	if !ignoreImmunity {
+		p.setAttackImmunity(immunity, totalDamage)
+	}
 
-	if a := p.Absorption(); a > 0 {
+	if a := p.Absorption(); a > 0 && !ignoresAbsorption(src) {
 		remaining := a - damageLeft
 		p.SetAbsorption(remaining)
 		damageLeft = max(0, damageLeft-a)
@@ -729,6 +732,16 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	}
 	result.damage, result.vulnerable = totalDamage, true
 	return result
+}
+
+func ignoresAbsorption(src world.DamageSource) bool {
+	capability, ok := src.(world.AbsorptionIgnoringDamageSource)
+	return ok && capability.IgnoreAbsorption()
+}
+
+func ignoresAttackImmunity(src world.DamageSource) bool {
+	capability, ok := src.(world.AttackImmunityIgnoringDamageSource)
+	return ok && capability.IgnoreAttackImmunity()
 }
 
 // applyTotemEffects is an unexported function that is used to handle totem effects.

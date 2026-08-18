@@ -473,6 +473,20 @@ type DamageSource interface {
 	IgnoreTotem() bool
 }
 
+// AbsorptionIgnoringDamageSource is an optional DamageSource capability. A
+// source returning true deals damage directly to health without consuming or
+// being reduced by absorption health.
+type AbsorptionIgnoringDamageSource interface {
+	IgnoreAbsorption() bool
+}
+
+// AttackImmunityIgnoringDamageSource is an optional DamageSource capability. A
+// source returning true is neither reduced by nor contributes to the ordinary
+// post-hit attack-immunity window.
+type AttackImmunityIgnoringDamageSource interface {
+	IgnoreAttackImmunity() bool
+}
+
 // HealingSource represents a source of healing for an Entity. This source may
 // be passed to the Heal() method of a living Entity.
 type HealingSource interface {

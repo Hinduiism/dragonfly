@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"image/color"
-	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -262,7 +261,7 @@ func entityOffset(e world.Entity) mgl64.Vec3 {
 
 // ViewTime ...
 func (s *Session) ViewTime(time int) {
-	s.writePacket(&packet.SetTime{Time: int32(time)})
+	s.viewPublicTime(time)
 }
 
 // ViewTimeCycle ...
@@ -1481,21 +1480,7 @@ func (s *Session) ViewWorldSpawn(pos cube.Pos) {
 
 // ViewWeather ...
 func (s *Session) ViewWeather(raining, thunder bool) {
-	pk := &packet.LevelEvent{
-		EventType: packet.LevelEventStopRaining,
-	}
-	if raining {
-		pk.EventType, pk.EventData = packet.LevelEventStartRaining, int32(rand.IntN(50000)+10000)
-	}
-	s.writePacket(pk)
-
-	pk = &packet.LevelEvent{
-		EventType: packet.LevelEventStopThunderstorm,
-	}
-	if thunder {
-		pk.EventType, pk.EventData = packet.LevelEventStartThunderstorm, int32(rand.IntN(50000)+10000)
-	}
-	s.writePacket(pk)
+	s.viewPublicWeather(raining, thunder)
 }
 
 // ViewEntityWake ...
