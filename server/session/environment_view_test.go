@@ -8,43 +8,43 @@ import (
 )
 
 func TestTimeOverrideSurvivesPublicRefreshAndRestoresLatestValue(t *testing.T) {
-	s := newEntityViewTestSession()
+	s := newEnvironmentViewTestSession()
 	s.ViewTime(6000)
 	assertTimePacket(t, s, 6000)
 
 	s.OverrideTime(18000)
 	assertTimePacket(t, s, 18000)
 	s.OverrideTime(18000)
-	assertNoEntityViewPacket(t, s)
+	assertNoEnvironmentPacket(t, s)
 
 	s.ViewTime(7000)
 	assertTimePacket(t, s, 18000)
 	s.ClearTimeOverride()
 	assertTimePacket(t, s, 7000)
 	s.ClearTimeOverride()
-	assertNoEntityViewPacket(t, s)
+	assertNoEnvironmentPacket(t, s)
 }
 
 func TestWeatherOverrideSurvivesPublicRefreshAndRestoresLatestValue(t *testing.T) {
-	s := newEntityViewTestSession()
+	s := newEnvironmentViewTestSession()
 	s.ViewWeather(false, false)
 	assertWeatherPackets(t, s, false, false)
 
 	s.OverrideWeather(true, true)
 	assertWeatherPackets(t, s, true, true)
 	s.OverrideWeather(true, true)
-	assertNoEntityViewPacket(t, s)
+	assertNoEnvironmentPacket(t, s)
 
 	s.ViewWeather(true, false)
 	assertWeatherPackets(t, s, true, true)
 	s.ClearWeatherOverride()
 	assertWeatherPackets(t, s, true, false)
 	s.ClearWeatherOverride()
-	assertNoEntityViewPacket(t, s)
+	assertNoEnvironmentPacket(t, s)
 }
 
 func TestClearEnvironmentViewsDropsOverridesAcrossWorldBoundary(t *testing.T) {
-	s := newEntityViewTestSession()
+	s := newEnvironmentViewTestSession()
 	s.ViewTime(6000)
 	assertTimePacket(t, s, 6000)
 	s.ViewWeather(false, false)
@@ -55,7 +55,7 @@ func TestClearEnvironmentViewsDropsOverridesAcrossWorldBoundary(t *testing.T) {
 	assertWeatherPackets(t, s, true, true)
 
 	s.clearEnvironmentViews()
-	assertNoEntityViewPacket(t, s)
+	assertNoEnvironmentPacket(t, s)
 	s.ViewTime(9000)
 	assertTimePacket(t, s, 9000)
 	s.ViewWeather(false, false)
@@ -63,7 +63,7 @@ func TestClearEnvironmentViewsDropsOverridesAcrossWorldBoundary(t *testing.T) {
 }
 
 func TestEnvironmentViewsAreRaceSafe(t *testing.T) {
-	s := newEntityViewTestSession()
+	s := newEnvironmentViewTestSession()
 	var workers sync.WaitGroup
 	for index := range 32 {
 		workers.Add(1)
@@ -78,6 +78,39 @@ func TestEnvironmentViewsAreRaceSafe(t *testing.T) {
 		}(index)
 	}
 	workers.Wait()
+}
+
+func newEnvironmentViewTestSession() *Session {
+	return &Session{
+		packets:         make(chan packet.Packet, 1024),
+		closeBackground: make(chan struct{}),
+	}
+}
+
+func packetOf[T packet.Packet](t *testing.T, s *Session) T {
+	t.Helper()
+	select {
+	case pk := <-s.packets:
+		got, ok := pk.(T)
+		if !ok {
+			var zero T
+			t.Fatalf("packet type: got %T, want %T", pk, zero)
+		}
+		return got
+	default:
+		var zero T
+		t.Fatalf("no packet queued, want %T", zero)
+		return zero
+	}
+}
+
+func assertNoEnvironmentPacket(t *testing.T, s *Session) {
+	t.Helper()
+	select {
+	case pk := <-s.packets:
+		t.Fatalf("unexpected packet %T", pk)
+	default:
+	}
 }
 
 func assertTimePacket(t *testing.T, session *Session, want int32) {

@@ -144,9 +144,6 @@ func (h *InventoryTransactionHandler) handleUseItemOnEntityTransaction(data *pro
 	if data.TargetEntityRuntimeID == selfEntityRuntimeID {
 		return fmt.Errorf("invalid entity interaction: players cannot interact with themselves")
 	}
-	if s.entityViewRuntimeID(data.TargetEntityRuntimeID) {
-		return nil
-	}
 
 	handle, ok := s.entityFromRuntimeID(data.TargetEntityRuntimeID)
 	if !ok {

@@ -61,9 +61,6 @@ type Session struct {
 	entities         map[uint64]*world.EntityHandle
 	hiddenEntities   map[uuid.UUID]struct{}
 
-	entityViewsMu sync.Mutex
-	entityViews   map[uint64]entityViewState
-
 	environmentViewsMu sync.Mutex
 	environmentViews   environmentViewState
 
@@ -203,7 +200,6 @@ func (conf Config) New(conn Conn) *Session {
 		entityRuntimeIDs:       map[*world.EntityHandle]uint64{},
 		entities:               map[uint64]*world.EntityHandle{},
 		hiddenEntities:         map[uuid.UUID]struct{}{},
-		entityViews:            map[uint64]entityViewState{},
 		blobs:                  map[uint64][]byte{},
 		chunkRadius:            int32(r),
 		maxChunkRadius:         int32(conf.MaxChunkRadius),
@@ -315,7 +311,6 @@ func (s *Session) Close(tx *world.Tx, c Controllable) {
 // close closes the session, which in turn closes the controllable and the connection that the session
 // manages.
 func (s *Session) close(tx *world.Tx, c Controllable) {
-	s.clearEntityViews()
 	s.clearEnvironmentViews()
 	if tx != nil {
 		c.MoveItemsToInventory()
@@ -522,7 +517,6 @@ func (s *Session) sendChunks(tx *world.Tx, c Controllable) {
 
 // handleWorldSwitch handles the player of the Session switching worlds.
 func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable) {
-	s.clearEntityViews()
 	s.clearEnvironmentViews()
 	if s.conn.ClientCacheEnabled() {
 		s.blobMu.Lock()
