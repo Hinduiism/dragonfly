@@ -460,6 +460,26 @@ func (s *Session) ViewParticle(pos mgl64.Vec3, p world.Particle) {
 		return
 	}
 	switch pa := p.(type) {
+	case particle.ResourcePack:
+		if s.chunkLoader == nil || s.chunkLoader.World() == nil {
+			return
+		}
+		dimension, ok := world.DimensionID(s.chunkLoader.World().Dimension())
+		if !ok || dimension < 0 || dimension > 255 {
+			// SpawnParticleEffect has only a byte-sized dimension field. Avoid
+			// truncating custom Dragonfly dimension IDs into an unrelated one.
+			return
+		}
+		pk := &packet.SpawnParticleEffect{
+			Dimension:      byte(dimension),
+			EntityUniqueID: -1,
+			Position:       vec64To32(pos),
+			ParticleName:   pa.Identifier(),
+		}
+		if variables := pa.MolangVariables(); variables != "" {
+			pk.MoLangVariables = protocol.Option([]byte(variables))
+		}
+		s.writePacket(pk)
 	case particle.DragonEggTeleport:
 		xSign, ySign, zSign := 0, 0, 0
 		if pa.Diff.X() < 0 {
