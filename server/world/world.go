@@ -1393,6 +1393,9 @@ func (w *World) close() {
 		w.Handler().HandleClose(tx)
 		tx.runDeferred()
 		w.Handle(NopHandler{})
+		for _, request := range w.chunkRequests {
+			request.fail(tx)
+		}
 
 		w.save(w.closeChunk)(tx)
 	})
@@ -1662,7 +1665,7 @@ func (w *World) autoSave() {
 // closeUnusedChunk closes all chunks currently not in use by any viewer.
 func (w *World) closeUnusedChunks(tx *Tx) {
 	for pos, c := range w.chunks {
-		if len(c.viewers) == 0 {
+		if len(c.viewers) == 0 && c.leases == 0 {
 			w.closeChunk(tx, pos, c)
 		}
 	}
@@ -1679,6 +1682,7 @@ type Column struct {
 
 	viewers []Viewer
 	loaders []*Loader
+	leases  int
 }
 
 // columnTo converts a Column to a chunk.Column so that it can be written to

@@ -122,13 +122,14 @@ func (tx *Tx) BlockLoaded(pos cube.Pos) (Block, bool) {
 }
 
 // UnloadChunkIfUnused closes and evicts the loaded chunk at pos when no
-// viewer or loader currently owns it. The method returns false when the chunk
-// is absent or in use. Modified chunks are saved through the World's Provider
-// using the same lifecycle as the periodic unused-chunk sweep.
+// viewer, loader or chunk lease currently owns it. The method returns false
+// when the chunk is absent or in use. Modified chunks are saved through the
+// World's Provider using the same lifecycle as the periodic unused-chunk
+// sweep.
 func (tx *Tx) UnloadChunkIfUnused(pos ChunkPos) bool {
 	w := tx.World()
 	c, ok := w.loadedChunk(pos)
-	if !ok || len(c.viewers) != 0 || len(c.loaders) != 0 {
+	if !ok || len(c.viewers) != 0 || len(c.loaders) != 0 || c.leases != 0 {
 		return false
 	}
 	w.closeChunk(tx, pos, c)

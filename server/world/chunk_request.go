@@ -61,6 +61,23 @@ func (r *chunkRequest) abort() {
 	close(r.done)
 }
 
+// fail notifies request callbacks that the World is closing. It runs on the
+// world owner before loaded chunks are closed. The worker still owns done and
+// may finish or abort the provider request independently.
+func (r *chunkRequest) fail(tx *Tx) {
+	if r.signalled {
+		return
+	}
+	r.signalled = true
+
+	w := tx.World()
+	delete(w.chunkRequests, r.pos)
+	for _, recv := range r.callbacks {
+		recv(tx, nil)
+	}
+	clear(r.callbacks)
+}
+
 // schedule hands r to the workers without blocking. It returns false if the
 // request cannot be accepted, e.g. when the world is closing.
 func (p *chunkWorkerPool) schedule(r *chunkRequest) bool {
