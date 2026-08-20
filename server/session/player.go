@@ -65,6 +65,18 @@ func (s *Session) StartShowingEntity(e world.Entity) {
 	}
 }
 
+// ClearHiddenEntity removes the persistent hidden marker for an Entity without
+// sending any packets. The entity may be shown again naturally by world
+// streaming after it and the session move into viewing range.
+func (s *Session) ClearHiddenEntity(e world.Entity) {
+	if e == nil {
+		return
+	}
+	s.entityMutex.Lock()
+	delete(s.hiddenEntities, e.H().UUID())
+	s.entityMutex.Unlock()
+}
+
 // closeCurrentContainer closes the container the player might currently have open.
 func (s *Session) closeCurrentContainer(tx *world.Tx, clientRequested bool) {
 	if !s.closeWindow(clientRequested) {

@@ -2672,6 +2672,14 @@ func (p *Player) ShowEntity(e world.Entity) {
 	}
 }
 
+// ClearHiddenEntity forgets that an Entity was hidden from the Player without
+// immediately showing it. World streaming may show the entity normally later.
+func (p *Player) ClearHiddenEntity(e world.Entity) {
+	if p.session() != session.Nop {
+		p.session().ClearHiddenEntity(e)
+	}
+}
+
 // Latency returns a rolling average of latency between the sending and the receiving end of the connection of
 // the player.
 // The latency returned is updated continuously and is half the round trip time (RTT).
