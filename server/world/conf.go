@@ -59,6 +59,16 @@ type Config struct {
 	// will stop random ticking altogether, while setting it higher results in
 	// faster ticking.
 	RandomTickSpeed int
+	// TickPolicy controls which independent World tick subsystems are disabled.
+	// The zero value leaves every subsystem enabled.
+	TickPolicy TickPolicy
+	// EntityStorage controls whether entities are loaded from and stored to the
+	// Provider. The zero value uses persistent entity storage.
+	EntityStorage EntityStorageMode
+	// MaxChunkRadius caps the chunk radius of player sessions viewing this
+	// World. Zero leaves the radius uncapped. Negative values are treated as
+	// zero.
+	MaxChunkRadius int
 	// RandSource is the rand.Source used for generation of random numbers in a
 	// World, such as when selecting blocks to tick or when deciding where to
 	// strike lightning. If set to nil, RandSource defaults to a `rand.PCG`
@@ -119,6 +129,9 @@ func (conf Config) New() *World {
 	}
 	if conf.RandomTickSpeed == 0 {
 		conf.RandomTickSpeed = 3
+	}
+	if conf.MaxChunkRadius < 0 {
+		conf.MaxChunkRadius = 0
 	}
 	if conf.Blocks == nil {
 		conf.Blocks = DefaultBlockRegistry

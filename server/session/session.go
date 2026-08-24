@@ -45,8 +45,8 @@ type Session struct {
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
 
-	chunkLoader                 *world.Loader
-	chunkRadius, maxChunkRadius int32
+	chunkLoader                                       *world.Loader
+	requestedChunkRadius, chunkRadius, maxChunkRadius int32
 
 	emoteChatMuted bool
 
@@ -181,9 +181,9 @@ type Config struct {
 }
 
 func (conf Config) New(conn Conn) *Session {
-	r := conn.ChunkRadius()
-	if r > conf.MaxChunkRadius {
-		r = conf.MaxChunkRadius
+	requested := int32(conn.ChunkRadius())
+	r := effectiveChunkRadius(requested, int32(conf.MaxChunkRadius), nil)
+	if r != requested {
 		_ = conn.WritePacket(&packet.ChunkRadiusUpdated{ChunkRadius: int32(r)})
 	}
 	if conf.Log == nil {
@@ -202,6 +202,7 @@ func (conf Config) New(conn Conn) *Session {
 		hiddenEntities:         map[uuid.UUID]struct{}{},
 		blobs:                  map[uint64][]byte{},
 		chunkRadius:            int32(r),
+		requestedChunkRadius:   requested,
 		maxChunkRadius:         int32(conf.MaxChunkRadius),
 		emoteChatMuted:         conf.EmoteChatMuted,
 		conn:                   conn,
@@ -268,6 +269,9 @@ func (s *Session) Spawn(c Controllable, tx *world.Tx) {
 	s.SendFood(c.Food(), 0, 0)
 
 	pos := c.Position()
+	if s.applyChunkRadius(s.requestedChunkRadius, tx.World()) {
+		s.writePacket(&packet.ChunkRadiusUpdated{ChunkRadius: s.chunkRadius})
+	}
 	s.chunkLoader = world.NewLoader(int(s.chunkRadius), tx.World(), s)
 	s.chunkLoader.Move(tx, pos)
 	s.writePacket(&packet.NetworkChunkPublisherUpdate{
@@ -531,7 +535,10 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 		s.changeDimension(int32(dim), false, c)
 	}
 	s.ViewEntityTeleport(c, c.Position())
-	s.chunkLoader.ChangeWorld(tx, w)
+	if s.applyChunkRadius(s.requestedChunkRadius, w) {
+		s.writePacket(&packet.ChunkRadiusUpdated{ChunkRadius: s.chunkRadius})
+	}
+	s.chunkLoader.ChangeWorldAndRadius(tx, w, int(s.chunkRadius))
 }
 
 // changeDimension changes the dimension of the client. If silent is set to true, the portal noise will be stopped

@@ -86,6 +86,15 @@ type World struct {
 	viewers  map[*Loader]Viewer
 }
 
+// MaxChunkRadius returns the maximum chunk radius player sessions may use in
+// the World. Zero means no per-world cap is applied.
+func (w *World) MaxChunkRadius() int {
+	if w == nil {
+		return 0
+	}
+	return w.conf.MaxChunkRadius
+}
+
 // transaction is a type that may be added to the transaction queue of a World.
 // Its Run method is called when the transaction is taken out of the queue.
 type transaction interface {
@@ -496,8 +505,9 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 	c := tx.chunk(chunkPosFromBlockPos(pos))
 
 	rid := w.conf.Blocks.BlockRuntimeID(b)
+	redstoneEnabled := w.conf.TickPolicy.Enabled(TickRedstone)
 	redstoneAfterRelevant := isRedstoneRelevant(b)
-	needOldBlock := !opts.DisableRedstoneUpdates || !redstoneAfterRelevant
+	needOldBlock := redstoneEnabled && (!opts.DisableRedstoneUpdates || !redstoneAfterRelevant)
 	needOldRID := needOldBlock || (rid != w.conf.Blocks.AirRuntimeID() && !opts.DisableLiquidDisplacement)
 
 	var oldRID uint32
@@ -563,7 +573,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 		}
 	}
 
-	if redstoneAfterRelevant || (needOldBlock && isRedstoneRelevant(oldBlock)) {
+	if redstoneEnabled && (redstoneAfterRelevant || (needOldBlock && isRedstoneRelevant(oldBlock))) {
 		w.redstone.forget(pos)
 	}
 
@@ -572,7 +582,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 	if !opts.DisableBlockUpdates {
 		w.doBlockUpdatesAround(pos)
 	}
-	if !opts.DisableRedstoneUpdates {
+	if redstoneEnabled && !opts.DisableRedstoneUpdates {
 		w.redstone.invalidateAroundBlockChange(pos, oldBlock, b, RedstoneUpdateCauseBlockUpdate, w.Range())
 	}
 }
@@ -749,7 +759,9 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 	if b == nil {
 		tx.removeLiquids(c, pos)
 		w.doBlockUpdatesAround(pos)
-		w.redstone.invalidateAround(pos, pos, RedstoneUpdateCauseBlockUpdate, w.Range())
+		if w.conf.TickPolicy.Enabled(TickRedstone) {
+			w.redstone.invalidateAround(pos, pos, RedstoneUpdateCauseBlockUpdate, w.Range())
+		}
 		return
 	}
 	x, y, z := uint8(pos[0]), int16(pos[1]), uint8(pos[2])
@@ -769,7 +781,9 @@ func (tx *Tx) setLiquid(pos cube.Pos, b Liquid) {
 	c.modified = true
 
 	w.doBlockUpdatesAround(pos)
-	w.redstone.invalidateAround(pos, pos, RedstoneUpdateCauseBlockUpdate, w.Range())
+	if w.conf.TickPolicy.Enabled(TickRedstone) {
+		w.redstone.invalidateAround(pos, pos, RedstoneUpdateCauseBlockUpdate, w.Range())
+	}
 }
 
 // removeLiquids removes any liquid blocks that may be present at a specific
@@ -1254,7 +1268,7 @@ func (w *World) SetDifficulty(d Difficulty) {
 // scheduled if no block update with the same position and block type is
 // already scheduled at a later time than the newly scheduled update.
 func (w *World) scheduleBlockUpdate(pos cube.Pos, b Block, delay time.Duration) {
-	if pos.OutOfBounds(w.Range()) {
+	if !w.conf.TickPolicy.Enabled(TickScheduledBlocks) || pos.OutOfBounds(w.Range()) {
 		return
 	}
 	w.scheduledUpdates.schedule(w.conf.Blocks, pos, b, delay)
@@ -1263,7 +1277,7 @@ func (w *World) scheduleBlockUpdate(pos cube.Pos, b Block, delay time.Duration) 
 // doBlockUpdatesAround schedules block updates directly around and on the
 // position passed.
 func (w *World) doBlockUpdatesAround(pos cube.Pos) {
-	if w == nil || pos.OutOfBounds(w.Range()) {
+	if w == nil || !w.conf.TickPolicy.Enabled(TickNeighbourUpdates) || pos.OutOfBounds(w.Range()) {
 		return
 	}
 	changed := pos
@@ -1283,6 +1297,9 @@ type neighbourUpdate struct {
 // updateNeighbour ticks the position passed as a result of the neighbour
 // passed being updated.
 func (w *World) updateNeighbour(pos, changedNeighbour cube.Pos) {
+	if !w.conf.TickPolicy.Enabled(TickNeighbourUpdates) {
+		return
+	}
 	w.neighbourUpdates = append(w.neighbourUpdates, neighbourUpdate{pos: pos, neighbour: changedNeighbour})
 }
 
@@ -1688,19 +1705,28 @@ type Column struct {
 // columnTo converts a Column to a chunk.Column so that it can be written to
 // a provider.
 func (w *World) columnTo(col *Column, pos ChunkPos) *chunk.Column {
-	scheduled := w.scheduledUpdates.fromChunk(pos)
+	var scheduled []scheduledTick
+	if w.conf.TickPolicy.Enabled(TickScheduledBlocks) {
+		scheduled = w.scheduledUpdates.fromChunk(pos)
+	}
+	var entities []chunk.Entity
+	if w.conf.EntityStorage == EntityStoragePersistent {
+		entities = make([]chunk.Entity, 0, len(col.Entities))
+	}
 	c := &chunk.Column{
 		Chunk:           col.Chunk,
-		Entities:        make([]chunk.Entity, 0, len(col.Entities)),
+		Entities:        entities,
 		BlockEntities:   make([]chunk.BlockEntity, 0, len(col.BlockEntities)),
 		ScheduledBlocks: make([]chunk.ScheduledBlockUpdate, 0, len(scheduled)),
 		Tick:            w.scheduledUpdates.currentTick,
 	}
-	for _, e := range col.Entities {
-		data := e.encodeNBT()
-		maps.Copy(data, e.t.EncodeNBT(&e.data))
-		data["identifier"] = e.t.EncodeEntity()
-		c.Entities = append(c.Entities, chunk.Entity{ID: int64(binary.LittleEndian.Uint64(e.id[8:])), Data: data})
+	if w.conf.EntityStorage == EntityStoragePersistent {
+		for _, e := range col.Entities {
+			data := e.encodeNBT()
+			maps.Copy(data, e.t.EncodeNBT(&e.data))
+			data["identifier"] = e.t.EncodeEntity()
+			c.Entities = append(c.Entities, chunk.Entity{ID: int64(binary.LittleEndian.Uint64(e.id[8:])), Data: data})
+		}
 	}
 	for pos, be := range col.BlockEntities {
 		c.BlockEntities = append(c.BlockEntities, chunk.BlockEntity{Pos: pos, Data: be.(NBTer).EncodeNBT()})
@@ -1714,23 +1740,29 @@ func (w *World) columnTo(col *Column, pos ChunkPos) *chunk.Column {
 // columnFrom converts a chunk.Column to a Column after reading it from a
 // provider.
 func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
+	var entities []*EntityHandle
+	if w.conf.EntityStorage == EntityStoragePersistent {
+		entities = make([]*EntityHandle, 0, len(c.Entities))
+	}
 	col := &Column{
 		Chunk:         c.Chunk,
-		Entities:      make([]*EntityHandle, 0, len(c.Entities)),
+		Entities:      entities,
 		BlockEntities: make(map[cube.Pos]Block, len(c.BlockEntities)),
 	}
-	for _, e := range c.Entities {
-		eid, ok := e.Data["identifier"].(string)
-		if !ok {
-			w.conf.Log.Error("read column: entity without identifier field", "ID", e.ID)
-			continue
+	if w.conf.EntityStorage == EntityStoragePersistent {
+		for _, e := range c.Entities {
+			eid, ok := e.Data["identifier"].(string)
+			if !ok {
+				w.conf.Log.Error("read column: entity without identifier field", "ID", e.ID)
+				continue
+			}
+			t, ok := w.conf.Entities.Lookup(eid)
+			if !ok {
+				w.conf.Log.Error("read column: unknown entity type", "ID", e.ID, "type", eid)
+				continue
+			}
+			col.Entities = append(col.Entities, entityFromData(t, e.ID, e.Data))
 		}
-		t, ok := w.conf.Entities.Lookup(eid)
-		if !ok {
-			w.conf.Log.Error("read column: unknown entity type", "ID", e.ID, "type", eid)
-			continue
-		}
-		col.Entities = append(col.Entities, entityFromData(t, e.ID, e.Data))
 	}
 	for _, be := range c.BlockEntities {
 		rid := c.Chunk.Block(uint8(be.Pos[0]), int16(be.Pos[1]), uint8(be.Pos[2]), 0)
@@ -1746,16 +1778,18 @@ func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
 		}
 		col.BlockEntities[be.Pos] = nb.DecodeNBT(be.Data).(Block)
 	}
-	scheduled, savedTick := make([]scheduledTick, 0, len(c.ScheduledBlocks)), c.Tick
-	for _, t := range c.ScheduledBlocks {
-		bl := w.conf.Blocks.BlockByRuntimeIDOrAir(t.Block)
-		scheduled = append(scheduled, scheduledTick{
-			pos:   t.Pos,
-			b:     bl,
-			bhash: w.conf.Blocks.BlockHash(bl),
-			t:     w.scheduledUpdates.currentTick + (t.Tick - savedTick),
-		})
+	if w.conf.TickPolicy.Enabled(TickScheduledBlocks) {
+		scheduled, savedTick := make([]scheduledTick, 0, len(c.ScheduledBlocks)), c.Tick
+		for _, t := range c.ScheduledBlocks {
+			bl := w.conf.Blocks.BlockByRuntimeIDOrAir(t.Block)
+			scheduled = append(scheduled, scheduledTick{
+				pos:   t.Pos,
+				b:     bl,
+				bhash: w.conf.Blocks.BlockHash(bl),
+				t:     w.scheduledUpdates.currentTick + (t.Tick - savedTick),
+			})
+		}
+		w.scheduledUpdates.add(scheduled)
 	}
-	w.scheduledUpdates.add(scheduled)
 	return col
 }

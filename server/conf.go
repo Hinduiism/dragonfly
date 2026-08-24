@@ -107,6 +107,15 @@ type Config struct {
 	// left as 0, the RandomTickSpeed will default to a speed of 3 blocks per
 	// sub chunk per tick (normal ticking speed).
 	RandomTickSpeed int
+	// WorldTickPolicy controls which tick subsystems are disabled in the
+	// standard overworld, nether and end. The zero value leaves all enabled.
+	WorldTickPolicy world.TickPolicy
+	// WorldEntityStorage controls entity persistence in the standard overworld,
+	// nether and end. The zero value uses persistent storage.
+	WorldEntityStorage world.EntityStorageMode
+	// WorldMaxChunkRadius caps player chunk radii in the standard overworld,
+	// nether and end. Zero leaves them subject only to MaxChunkRadius.
+	WorldMaxChunkRadius int
 	// SaveInterval specifies how often a World should be automatically saved to
 	// disk. This includes chunks, entities and level.dat data. If ReadOnlyWorld
 	// is set to true, changing SaveInterval will have no effect.

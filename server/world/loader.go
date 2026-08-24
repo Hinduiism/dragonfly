@@ -47,7 +47,20 @@ func (l *Loader) World() *World {
 func (l *Loader) ChangeWorld(tx *Tx, new *World) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.changeWorldLocked(new, l.r)
+}
 
+// ChangeWorldAndRadius changes the World and chunk radius of the Loader as one
+// operation. The currently loaded chunks are reset and the new World's load
+// queue is populated once using radius.
+func (l *Loader) ChangeWorldAndRadius(_ *Tx, new *World, radius int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.changeWorldLocked(new, radius)
+}
+
+// changeWorldLocked changes the Loader's World and radius. l.mu must be held.
+func (l *Loader) changeWorldLocked(new *World, radius int) {
 	loaded := maps.Clone(l.loaded)
 	l.w.exec(func(tx *Tx) {
 		for pos := range loaded {
@@ -60,6 +73,7 @@ func (l *Loader) ChangeWorld(tx *Tx, new *World) {
 	delete(l.w.viewers, l)
 	l.w.viewerMu.Unlock()
 
+	l.r = radius
 	l.world(new)
 }
 

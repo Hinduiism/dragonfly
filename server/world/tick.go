@@ -46,6 +46,7 @@ func (w *World) AdvanceTick() {
 func (t ticker) tick(tx *Tx) {
 	viewers, loaders := tx.World().allViewers()
 	w := tx.World()
+	policy := w.conf.TickPolicy
 
 	w.set.Lock()
 	if s := w.set.Spawn; s[1] > tx.Range()[1] && w.Dimension() == Overworld {
@@ -72,7 +73,7 @@ func (t ticker) tick(tx *Tx) {
 	rain, thunder, tick, tim, cycle := w.set.Raining, w.set.Thundering && w.set.Raining, w.set.CurrentTick, int(w.set.Time), w.set.TimeCycle
 
 	tryAdvanceDay := false
-	if tx.w.set.RequiredSleepTicks > 0 {
+	if policy.Enabled(TickSleep) && tx.w.set.RequiredSleepTicks > 0 {
 		tx.w.set.RequiredSleepTicks--
 		tryAdvanceDay = tx.w.set.RequiredSleepTicks <= 0
 	}
@@ -93,15 +94,21 @@ func (t ticker) tick(tx *Tx) {
 			}
 		}
 	}
-	if thunder {
+	if thunder && policy.Enabled(TickLightning) {
 		w.tickLightning(tx)
 	}
 
-	t.tickEntities(tx, tick)
-	w.scheduledUpdates.tick(tx, tick)
-	t.tickBlocksRandomly(tx, loaders, tick)
-	t.performNeighbourUpdates(tx)
-	w.redstone.tick(tx, tick)
+	t.tickEntities(tx, tick, policy.Enabled(TickNonPlayerEntities))
+	if policy.Enabled(TickScheduledBlocks) {
+		w.scheduledUpdates.tick(tx, tick)
+	}
+	t.tickBlocks(tx, loaders, tick, policy.Enabled(TickRandomBlocks), policy.Enabled(TickBlockEntities))
+	if policy.Enabled(TickNeighbourUpdates) {
+		t.performNeighbourUpdates(tx)
+	}
+	if policy.Enabled(TickRedstone) {
+		w.redstone.tick(tx, tick)
+	}
 }
 
 // performNeighbourUpdates performs all block updates that came as a result of a neighbouring block being changed.
@@ -123,8 +130,11 @@ func (t ticker) performNeighbourUpdates(tx *Tx) {
 	}
 }
 
-// tickBlocksRandomly executes random block ticks in loaded chunks within range of loaders.
-func (t ticker) tickBlocksRandomly(tx *Tx, loaders []*Loader, tick int64) {
+// tickBlocks executes random and block entity ticks in loaded chunks within range of loaders.
+func (t ticker) tickBlocks(tx *Tx, loaders []*Loader, tick int64, randomEnabled, blockEntitiesEnabled bool) {
+	if !randomEnabled && !blockEntitiesEnabled {
+		return
+	}
 	var (
 		r             = int32(tx.World().tickRange())
 		g             randUint4
@@ -154,7 +164,12 @@ func (t ticker) tickBlocksRandomly(tx *Tx, loaders []*Loader, tick int64) {
 			// No loaders in this chunk that are within the simulation distance, so proceed to the next.
 			continue
 		}
-		blockEntities = append(blockEntities, slices.Collect(maps.Keys(c.BlockEntities))...)
+		if blockEntitiesEnabled {
+			blockEntities = append(blockEntities, slices.Collect(maps.Keys(c.BlockEntities))...)
+		}
+		if !randomEnabled {
+			continue
+		}
 
 		cx, cz := int(pos[0]<<4), int(pos[1]<<4)
 
@@ -209,7 +224,7 @@ func (t ticker) anyWithinDistance(pos ChunkPos, loaded []ChunkPos, r int32) bool
 
 // tickEntities ticks all entities in the world, making sure they are still located in the correct chunks and
 // updating where necessary.
-func (t ticker) tickEntities(tx *Tx, tick int64) {
+func (t ticker) tickEntities(tx *Tx, tick int64, nonPlayersEnabled bool) {
 	for handle, lastPos := range tx.World().entities {
 		e := handle.mustEntity(tx)
 		chunkPos := chunkPosFromVec3(handle.data.Pos)
@@ -251,7 +266,7 @@ func (t ticker) tickEntities(tx *Tx, tick int64) {
 			}
 		}
 
-		if tx.World().conf.Synchronous || len(c.viewers) > 0 {
+		if (nonPlayersEnabled || handle.t.EncodeEntity() == "minecraft:player") && (tx.World().conf.Synchronous || len(c.viewers) > 0) {
 			if te, ok := e.(TickerEntity); ok {
 				te.Tick(tx, tick)
 			}
