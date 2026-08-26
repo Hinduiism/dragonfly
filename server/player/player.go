@@ -2868,12 +2868,10 @@ func (p *Player) tickAirSupply() {
 // tickFood ticks food related functionality, such as the depletion of the food bar and regeneration if it
 // is full enough.
 func (p *Player) tickFood() {
-	if p.hunger.foodTick%10 == 0 && (p.hunger.canQuicklyRegenerate() || p.tx.World().Difficulty().FoodRegenerates()) {
-		if p.tx.World().Difficulty().FoodRegenerates() {
-			p.AddFood(1)
-		}
+	if p.hunger.foodTick%10 == 0 && p.tx.World().Difficulty().FoodRegenerates() {
+		p.AddFood(1)
 		if p.hunger.foodTick%20 == 0 {
-			p.regenerate(true)
+			p.regenerate(false)
 		}
 	}
 	if p.hunger.foodTick == 1 {
@@ -2899,7 +2897,7 @@ func (p *Player) regenerate(exhaust bool) {
 	if p.Health() == p.MaxHealth() {
 		return
 	}
-	regenerated := p.Heal(1, entity.FoodHealingSource{QuickRegeneration: exhaust})
+	regenerated := p.Heal(1, entity.FoodHealingSource{})
 	if exhaust && regenerated > 0 {
 		p.Exhaust(6)
 	}
