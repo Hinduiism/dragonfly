@@ -172,6 +172,85 @@ func (storage *PalettedStorage) resize(newPaletteSize paletteSize) {
 	*storage = *newStorage
 }
 
+// compactForRuntimeCache collapses uniform storage and shrinks oversized
+// index widths without scanning all 4,096 positions for unused palette
+// entries.
+func (storage *PalettedStorage) compactForRuntimeCache() {
+	if storage == nil || storage.palette == nil || storage.palette.Len() == 0 {
+		return
+	}
+	if storage.palette.Len() == 1 {
+		storage.collapseToPaletteIndex(0)
+		return
+	}
+	if index, ok := storage.uniformPaletteIndex(); ok {
+		storage.collapseToPaletteIndex(index)
+		return
+	}
+
+	size := paletteSizeFor(storage.palette.Len())
+	if size < paletteSize(storage.bitsPerIndex) {
+		storage.resize(size)
+	}
+	if size < storage.palette.size {
+		storage.palette.size = size
+	}
+}
+
+func (storage *PalettedStorage) uniformPaletteIndex() (uint16, bool) {
+	if storage == nil || storage.palette == nil || storage.palette.Len() == 0 {
+		return 0, false
+	}
+	if storage.bitsPerIndex == 0 {
+		return 0, true
+	}
+	switch storage.bitsPerIndex {
+	case 1, 2, 3, 4, 5, 6, 8, 16:
+	default:
+		return 0, false
+	}
+	if len(storage.indices) != paletteSize(storage.bitsPerIndex).uint32s() || len(storage.indices) == 0 {
+		return 0, false
+	}
+
+	index := uint16(storage.indices[0] & storage.indexMask)
+	if int(index) >= storage.palette.Len() {
+		return 0, false
+	}
+	indicesPerWord := uint32BitSize / int(storage.bitsPerIndex)
+	fullWords, remainder := 4096/indicesPerWord, 4096%indicesPerWord
+	fullPattern := repeatedPaletteIndexWord(index, storage.bitsPerIndex, indicesPerWord)
+	fullMask := repeatedPaletteIndexWord(uint16(storage.indexMask), storage.bitsPerIndex, indicesPerWord)
+	for _, word := range storage.indices[:fullWords] {
+		if word&fullMask != fullPattern {
+			return 0, false
+		}
+	}
+	if remainder != 0 {
+		pattern := repeatedPaletteIndexWord(index, storage.bitsPerIndex, remainder)
+		mask := repeatedPaletteIndexWord(uint16(storage.indexMask), storage.bitsPerIndex, remainder)
+		if storage.indices[fullWords]&mask != pattern {
+			return 0, false
+		}
+	}
+	return index, true
+}
+
+func (storage *PalettedStorage) collapseToPaletteIndex(index uint16) {
+	if storage == nil || storage.palette == nil || int(index) >= storage.palette.Len() {
+		return
+	}
+	*storage = *emptyStorage(storage.palette.Value(index))
+}
+
+func repeatedPaletteIndexWord(index uint16, bitsPerIndex uint16, count int) uint32 {
+	var word uint32
+	for offset := 0; offset < count; offset++ {
+		word |= uint32(index) << (uint16(offset) * bitsPerIndex)
+	}
+	return word
+}
+
 // compact clears unused indexes in the palette by scanning for usages in the PalettedStorage. This is a
 // relatively heavy task which should only happen right before the sub chunk holding this PalettedStorage is
 // saved to disk. compact also shrinks the palette size if possible.

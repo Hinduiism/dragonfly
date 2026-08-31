@@ -217,6 +217,19 @@ func (chunk *Chunk) Compact() {
 	}
 }
 
+// CompactForRuntimeCache performs cheap in-memory compaction on block
+// storages without scanning every block to remove unused palette entries.
+func (chunk *Chunk) CompactForRuntimeCache() {
+	if chunk == nil {
+		return
+	}
+	for _, sub := range chunk.sub {
+		if sub != nil {
+			sub.compactForRuntimeCache()
+		}
+	}
+}
+
 // SubChunk finds the correct SubChunk in the Chunk by a Y value.
 func (chunk *Chunk) SubChunk(y int16) *SubChunk {
 	return chunk.sub[chunk.SubIndex(y)]

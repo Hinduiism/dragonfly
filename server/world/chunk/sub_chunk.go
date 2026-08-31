@@ -133,6 +133,30 @@ func (sub *SubChunk) SkyLight(x, y, z byte) uint8 {
 	return (sub.skyLight[index>>1] >> ((index & 1) << 2)) & 0xf
 }
 
+func (sub *SubChunk) compactForRuntimeCache() {
+	if sub == nil {
+		return
+	}
+	for _, storage := range sub.storages {
+		if storage != nil {
+			storage.compactForRuntimeCache()
+		}
+	}
+
+	// A layer's index is semantically meaningful. Only trailing air layers may
+	// be removed without shifting a higher layer into a different role.
+	end := len(sub.storages)
+	for end > 0 {
+		storage := sub.storages[end-1]
+		if storage == nil || storage.palette == nil || storage.palette.Len() != 1 || storage.palette.Value(0) != sub.air {
+			break
+		}
+		end--
+	}
+	clear(sub.storages[end:])
+	sub.storages = sub.storages[:end]
+}
+
 // Compact cleans the garbage from all block storages that sub chunk contains, so that they may be
 // cleanly written to a database.
 func (sub *SubChunk) compact() {
