@@ -174,6 +174,15 @@ func (p *Player) DeviceModel() string {
 	return p.session().ClientData().DeviceModel
 }
 
+// GameVersion returns the game version reported by the player. If the Player is not connected to a network session,
+// an empty string is returned.
+func (p *Player) GameVersion() string {
+	if p.session() == session.Nop {
+		return ""
+	}
+	return p.session().ClientData().GameVersion
+}
+
 // SelfSignedID returns the self-signed ID of the player. If the Player is not connected to a network session, an empty
 // string is returned. Otherwise, the self-signed ID the network session sent in the ClientData is returned.
 func (p *Player) SelfSignedID() string {
