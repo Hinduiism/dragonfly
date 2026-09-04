@@ -81,6 +81,7 @@ type Session struct {
 	openedContainerID              atomic.Uint32
 	openedWindow                   atomic.Pointer[inventory.Inventory]
 	openedPos                      atomic.Pointer[cube.Pos]
+	virtualContainer               atomic.Pointer[virtualContainer]
 	swingingArm                    atomic.Bool
 	changingSlot                   atomic.Bool
 	changingDimension              atomic.Bool
@@ -319,6 +320,8 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 	if tx != nil {
 		c.MoveItemsToInventory()
 		s.closeCurrentContainer(tx, false)
+	} else {
+		s.closeVirtualContainer(nil, false)
 	}
 	if s.viewLayer != nil {
 		_ = s.viewLayer.Close()

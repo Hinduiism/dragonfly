@@ -79,6 +79,9 @@ func (s *Session) ClearHiddenEntity(e world.Entity) {
 
 // closeCurrentContainer closes the container the player might currently have open.
 func (s *Session) closeCurrentContainer(tx *world.Tx, clientRequested bool) {
+	if s.closeVirtualContainer(tx, clientRequested) {
+		return
+	}
 	if !s.closeWindow(clientRequested) {
 		return
 	}

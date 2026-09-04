@@ -68,7 +68,11 @@ func (h *ItemStackRequestHandler) handleRequest(req protocol.ItemStackRequest, s
 			h.reject(req.RequestID, s, tx)
 			return
 		}
+		state, event, publish := s.virtualContainerRequest(h.changes, tx)
 		h.resolve(req.RequestID, s)
+		if publish {
+			s.publishVirtualContainerRequest(state, event)
+		}
 		h.ignoreDestroy = false
 	}()
 
@@ -164,9 +168,10 @@ func (h *ItemStackRequestHandler) handleTransfer(from, to protocol.StackRequestS
 	invB, _ := s.invByID(int32(to.Container.ContainerID), tx)
 
 	ctx := event.C(inventory.Holder(c))
-	_ = call(ctx, int(from.Slot), i.Grow(int(count)-i.Count()), invA.Handler().HandleTake)
-	err := call(ctx, int(to.Slot), i.Grow(int(count)-i.Count()), invB.Handler().HandlePlace)
-	if err != nil {
+	if err := call(ctx, int(from.Slot), i.Grow(int(count)-i.Count()), invA.Handler().HandleTake); err != nil {
+		return err
+	}
+	if err := call(ctx, int(to.Slot), i.Grow(int(count)-i.Count()), invB.Handler().HandlePlace); err != nil {
 		return err
 	}
 
@@ -188,11 +193,16 @@ func (h *ItemStackRequestHandler) handleSwap(a *protocol.SwapStackRequestAction,
 	invB, _ := s.invByID(int32(a.Destination.Container.ContainerID), tx)
 
 	ctx := event.C(inventory.Holder(c))
-	_ = call(ctx, int(a.Source.Slot), i, invA.Handler().HandleTake)
-	_ = call(ctx, int(a.Source.Slot), dest, invA.Handler().HandlePlace)
-	_ = call(ctx, int(a.Destination.Slot), dest, invB.Handler().HandleTake)
-	err := call(ctx, int(a.Destination.Slot), i, invB.Handler().HandlePlace)
-	if err != nil {
+	if err := call(ctx, int(a.Source.Slot), i, invA.Handler().HandleTake); err != nil {
+		return err
+	}
+	if err := call(ctx, int(a.Source.Slot), dest, invA.Handler().HandlePlace); err != nil {
+		return err
+	}
+	if err := call(ctx, int(a.Destination.Slot), dest, invB.Handler().HandleTake); err != nil {
+		return err
+	}
+	if err := call(ctx, int(a.Destination.Slot), i, invB.Handler().HandlePlace); err != nil {
 		return err
 	}
 
@@ -229,6 +239,10 @@ func (h *ItemStackRequestHandler) handleDestroy(a *protocol.DestroyStackRequestA
 	i, _ := h.itemInSlot(a.Source, s, tx)
 	if i.Count() < int(a.Count) {
 		return fmt.Errorf("client attempted to destroy %v items, but only %v present", a.Count, i.Count())
+	}
+	inv, _ := s.invByID(int32(a.Source.Container.ContainerID), tx)
+	if err := call(event.C(inventory.Holder(c)), int(a.Source.Slot), i.Grow(int(a.Count)-i.Count()), inv.Handler().HandleTake); err != nil {
+		return err
 	}
 
 	h.setItemInSlot(a.Source, i.Grow(-int(a.Count)), s, tx)
@@ -435,6 +449,9 @@ func (h *ItemStackRequestHandler) setItemInSlot(slot protocol.StackRequestSlotIn
 
 	if h.changes[slot.Container.ContainerID] == nil {
 		h.changes[slot.Container.ContainerID] = map[byte]changeInfo{}
+	}
+	if previous, ok := h.changes[slot.Container.ContainerID][slot.Slot]; ok {
+		before = previous.before
 	}
 	h.changes[slot.Container.ContainerID][slot.Slot] = changeInfo{
 		after:  respSlot,
