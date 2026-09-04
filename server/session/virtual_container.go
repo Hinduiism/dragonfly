@@ -3,6 +3,8 @@ package session
 import (
 	"errors"
 	"sort"
+	"sync"
+	"time"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -13,6 +15,10 @@ import (
 )
 
 var errInvalidVirtualContainer = errors.New("virtual container inventory must contain 27 or 54 slots")
+
+// virtualContainerOpenDelay gives the client time to register the client-only
+// chest blocks before it receives the window open packet.
+const virtualContainerOpenDelay = 500 * time.Millisecond
 
 // VirtualContainerTransaction describes one successful request processed while a virtual container is open.
 type VirtualContainerTransaction struct {
@@ -26,6 +32,7 @@ type VirtualContainerConfig struct {
 	Inventory     *inventory.Inventory
 	Title         string
 	MoveTransient func(*world.Tx)
+	OnOpen        func(*world.Tx)
 	OnTransaction func(*world.Tx, VirtualContainerTransaction)
 	OnClose       func(*world.Tx)
 }
@@ -33,9 +40,17 @@ type VirtualContainerConfig struct {
 type virtualContainer struct {
 	inventory     *inventory.Inventory
 	blocks        []virtualContainerBlock
+	pos           cube.Pos
+	windowID      byte
+	onOpen        func(*world.Tx)
 	onTransaction func(*world.Tx, VirtualContainerTransaction)
 	onClose       func(*world.Tx)
 	moveTransient func(*world.Tx)
+
+	lifecycleMu sync.Mutex
+	openTask    *world.Task
+	opened      bool
+	closed      bool
 }
 
 type virtualContainerBlock struct {
@@ -65,6 +80,8 @@ func (s *Session) OpenVirtualChest(tx *world.Tx, pos cube.Pos, facing cube.Direc
 	state := &virtualContainer{
 		inventory:     config.Inventory,
 		blocks:        blocks,
+		pos:           pos,
+		onOpen:        config.OnOpen,
 		onTransaction: config.OnTransaction,
 		onClose:       config.OnClose,
 		moveTransient: config.MoveTransient,
@@ -83,19 +100,46 @@ func (s *Session) OpenVirtualChest(tx *world.Tx, pos cube.Pos, facing cube.Direc
 		s.writeVirtualChestPair(pair, pos, config.Title)
 	}
 
-	nextID := s.nextWindowID()
+	state.windowID = s.nextWindowID()
 	s.containerOpened.Store(true)
 	s.openedWindow.Store(config.Inventory)
 	s.openedPos.Store(&pos)
 	s.openedContainerID.Store(protocol.ContainerTypeContainer)
+	task := tx.World().DoAfter(virtualContainerOpenDelay, func(openTx *world.Tx) {
+		s.finishVirtualChestOpen(openTx, state)
+	})
+	state.lifecycleMu.Lock()
+	if state.closed {
+		task.Cancel()
+	} else {
+		state.openTask = task
+	}
+	state.lifecycleMu.Unlock()
+	return nil
+}
+
+func (s *Session) finishVirtualChestOpen(tx *world.Tx, state *virtualContainer) {
+	if tx == nil || state == nil {
+		return
+	}
+	state.lifecycleMu.Lock()
+	if state.closed || state.opened || s.virtualContainer.Load() != state ||
+		s.openedWindow.Load() != state.inventory || !s.containerOpened.Load() {
+		state.lifecycleMu.Unlock()
+		return
+	}
+	state.opened = true
 	s.writePacket(&packet.ContainerOpen{
-		WindowID:                nextID,
+		WindowID:                state.windowID,
 		ContainerType:           protocol.ContainerTypeContainer,
-		ContainerPosition:       protocol.BlockPos{int32(pos.X()), int32(pos.Y()), int32(pos.Z())},
+		ContainerPosition:       protocol.BlockPos{int32(state.pos.X()), int32(state.pos.Y()), int32(state.pos.Z())},
 		ContainerEntityUniqueID: -1,
 	})
-	s.sendInv(config.Inventory, uint32(nextID))
-	return nil
+	s.sendInv(state.inventory, uint32(state.windowID))
+	state.lifecycleMu.Unlock()
+	if state.onOpen != nil {
+		state.onOpen(tx)
+	}
 }
 
 // CloseContainer closes the current container, if one is open.
@@ -126,10 +170,17 @@ func (s *Session) closeVirtualContainer(tx *world.Tx, clientRequested bool) bool
 	if state == nil {
 		return false
 	}
+	state.lifecycleMu.Lock()
+	state.closed = true
+	opened := state.opened
+	if state.openTask != nil {
+		state.openTask.Cancel()
+	}
+	state.lifecycleMu.Unlock()
 	if state.moveTransient != nil {
 		state.moveTransient(tx)
 	}
-	s.closeWindow(clientRequested)
+	s.closeWindow(clientRequested || !opened)
 	if tx != nil {
 		for _, entry := range state.blocks {
 			s.ViewBlockUpdate(entry.pos, entry.original, 0)

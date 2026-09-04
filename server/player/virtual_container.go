@@ -30,6 +30,7 @@ type VirtualContainerTransaction struct {
 type VirtualContainerConfig struct {
 	Inventory     *inventory.Inventory
 	Title         string
+	OnOpen        func(*world.Tx, *Player)
 	OnTransaction func(*world.Tx, *Player, VirtualContainerTransaction)
 	OnClose       func(*world.Tx, *Player)
 }
@@ -50,7 +51,7 @@ func (p *Player) OpenVirtualChest(tx *world.Tx, config VirtualContainerConfig) e
 	}
 
 	direction := p.Rotation().Direction()
-	pos := cube.PosFromVec3(p.Position()).Side(direction.Face()).Side(direction.Face())
+	pos := cube.PosFromVec3(p.Position()).Side(direction.Opposite().Face()).Side(direction.Opposite().Face())
 	y := pos.Y() + 2
 	r := tx.Range()
 	if y < r.Min() {
@@ -62,12 +63,19 @@ func (p *Player) OpenVirtualChest(tx *world.Tx, config VirtualContainerConfig) e
 	pos[1] = y
 
 	handle := p.H()
-	return s.OpenVirtualChest(tx, pos, direction.Opposite(), session.VirtualContainerConfig{
+	return s.OpenVirtualChest(tx, pos, direction, session.VirtualContainerConfig{
 		Inventory: config.Inventory,
 		Title:     config.Title,
 		MoveTransient: func(tx *world.Tx) {
 			if current, ok := playerFromHandle(tx, handle); ok {
 				current.MoveItemsToInventory()
+			}
+		},
+		OnOpen: func(tx *world.Tx) {
+			if config.OnOpen != nil {
+				if current, ok := playerFromHandle(tx, handle); ok {
+					config.OnOpen(tx, current)
+				}
 			}
 		},
 		OnTransaction: func(tx *world.Tx, event session.VirtualContainerTransaction) {

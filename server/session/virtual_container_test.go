@@ -34,7 +34,17 @@ func TestVirtualChestIsPrivateAndDoesNotMutateWorld(t *testing.T) {
 		opener := virtualTestSession()
 		other := virtualTestSession()
 		container := inventory.New(54, nil)
-		if err := opener.OpenVirtualChest(tx, pos, cube.North, VirtualContainerConfig{Inventory: container, Title: "Vault"}); err != nil {
+		opened := 0
+		if err := opener.OpenVirtualChest(tx, pos, cube.North, VirtualContainerConfig{
+			Inventory: container,
+			Title:     "Vault",
+			OnOpen: func(callbackTx *world.Tx) {
+				if callbackTx != tx {
+					t.Fatal("open callback received the wrong world transaction")
+				}
+				opened++
+			},
+		}); err != nil {
 			t.Fatal(err)
 		}
 		for p, want := range originals {
@@ -48,17 +58,64 @@ func TestVirtualChestIsPrivateAndDoesNotMutateWorld(t *testing.T) {
 		if opener.openedWindow.Load() != container || !opener.containerOpened.Load() {
 			t.Fatal("virtual inventory was not installed as the open window")
 		}
-		var opened, contents bool
+		for len(opener.packets) != 0 {
+			if _, ok := (<-opener.packets).(*packet.ContainerOpen); ok {
+				t.Fatal("container opened before the client-only chest setup delay")
+			}
+		}
+		opener.finishVirtualChestOpen(tx, opener.virtualContainer.Load())
+		opener.finishVirtualChestOpen(tx, opener.virtualContainer.Load())
+		if opened != 1 {
+			t.Fatalf("open callbacks = %d, want 1", opened)
+		}
+		var openPacket, contents bool
 		for len(opener.packets) != 0 {
 			switch (<-opener.packets).(type) {
 			case *packet.ContainerOpen:
-				opened = true
+				openPacket = true
 			case *packet.InventoryContent:
 				contents = true
 			}
 		}
-		if !opened || !contents {
+		if !openPacket || !contents {
 			t.Fatal("opener did not receive the container and inventory packets")
+		}
+	}).Wait(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestVirtualChestCloseBeforeOpenCancelsPendingWindow(t *testing.T) {
+	runtime := world.Config{Synchronous: true}.New()
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	err := runtime.Do(func(tx *world.Tx) {
+		s := virtualTestSession()
+		opened, closed := 0, 0
+		if err := s.OpenVirtualChest(tx, cube.Pos{0, 70, 0}, cube.North, VirtualContainerConfig{
+			Inventory: inventory.New(54, nil),
+			OnOpen:    func(*world.Tx) { opened++ },
+			OnClose:   func(*world.Tx) { closed++ },
+		}); err != nil {
+			t.Fatal(err)
+		}
+		state := s.virtualContainer.Load()
+		s.CloseContainer(tx)
+		s.finishVirtualChestOpen(tx, state)
+		if opened != 0 || closed != 1 {
+			t.Fatalf("open/close callbacks = %d/%d, want 0/1", opened, closed)
+		}
+		if state.openTask == nil || state.openTask.Err() != world.ErrTaskCancelled {
+			t.Fatalf("pending open task error = %v, want %v", state.openTask.Err(), world.ErrTaskCancelled)
+		}
+		for len(s.packets) != 0 {
+			switch (<-s.packets).(type) {
+			case *packet.ContainerOpen:
+				t.Fatal("cancelled virtual chest emitted ContainerOpen")
+			case *packet.ContainerClose:
+				t.Fatal("cancelled virtual chest emitted ContainerClose before opening")
+			}
 		}
 	}).Wait(t.Context())
 	if err != nil {
