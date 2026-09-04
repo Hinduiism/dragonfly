@@ -20,21 +20,22 @@ type VirtualContainerTransaction struct {
 	TransientEmpty bool
 }
 
-// VirtualContainerConfig configures a private chest window. It is primarily consumed by the player package.
+// VirtualContainerConfig configures a private chest window. Callbacks run synchronously on the current owner with
+// its transaction. The transaction passed to MoveTransient and OnClose may be nil during detached teardown.
 type VirtualContainerConfig struct {
 	Inventory     *inventory.Inventory
 	Title         string
-	MoveTransient func()
-	OnTransaction func(VirtualContainerTransaction)
-	OnClose       func()
+	MoveTransient func(*world.Tx)
+	OnTransaction func(*world.Tx, VirtualContainerTransaction)
+	OnClose       func(*world.Tx)
 }
 
 type virtualContainer struct {
 	inventory     *inventory.Inventory
 	blocks        []virtualContainerBlock
-	onTransaction func(VirtualContainerTransaction)
-	onClose       func()
-	moveTransient func()
+	onTransaction func(*world.Tx, VirtualContainerTransaction)
+	onClose       func(*world.Tx)
+	moveTransient func(*world.Tx)
 }
 
 type virtualContainerBlock struct {
@@ -126,7 +127,7 @@ func (s *Session) closeVirtualContainer(tx *world.Tx, clientRequested bool) bool
 		return false
 	}
 	if state.moveTransient != nil {
-		state.moveTransient()
+		state.moveTransient(tx)
 	}
 	s.closeWindow(clientRequested)
 	if tx != nil {
@@ -135,7 +136,7 @@ func (s *Session) closeVirtualContainer(tx *world.Tx, clientRequested bool) bool
 		}
 	}
 	if state.onClose != nil {
-		state.onClose()
+		state.onClose(tx)
 	}
 	return true
 }
@@ -163,9 +164,9 @@ func (s *Session) virtualContainerRequest(changes map[byte]map[byte]changeInfo, 
 	return state, VirtualContainerTransaction{ChangedSlots: changed, TransientEmpty: s.ui.Empty()}, true
 }
 
-func (s *Session) publishVirtualContainerRequest(state *virtualContainer, event VirtualContainerTransaction) {
+func (s *Session) publishVirtualContainerRequest(tx *world.Tx, state *virtualContainer, event VirtualContainerTransaction) {
 	if state == nil || state.onTransaction == nil || s.virtualContainer.Load() != state {
 		return
 	}
-	state.onTransaction(event)
+	state.onTransaction(tx, event)
 }

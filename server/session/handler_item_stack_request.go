@@ -71,7 +71,7 @@ func (h *ItemStackRequestHandler) handleRequest(req protocol.ItemStackRequest, s
 		state, event, publish := s.virtualContainerRequest(h.changes, tx)
 		h.resolve(req.RequestID, s)
 		if publish {
-			s.publishVirtualContainerRequest(state, event)
+			s.publishVirtualContainerRequest(tx, state, event)
 		}
 		h.ignoreDestroy = false
 	}()

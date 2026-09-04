@@ -24,12 +24,14 @@ type VirtualContainerTransaction struct {
 	TransientEmpty bool
 }
 
-// VirtualContainerConfig configures a private chest window shown only to one Player.
+// VirtualContainerConfig configures a private chest window shown only to one Player. Callbacks receive the current
+// transaction and Player rather than the transaction-bound Player used to open the window. OnClose may receive nil
+// values during detached teardown.
 type VirtualContainerConfig struct {
 	Inventory     *inventory.Inventory
 	Title         string
-	OnTransaction func(VirtualContainerTransaction)
-	OnClose       func()
+	OnTransaction func(*world.Tx, *Player, VirtualContainerTransaction)
+	OnClose       func(*world.Tx, *Player)
 }
 
 // OpenVirtualChest opens a private 27-slot or 54-slot chest backed by the Inventory in config. The fake chest blocks
@@ -59,22 +61,45 @@ func (p *Player) OpenVirtualChest(tx *world.Tx, config VirtualContainerConfig) e
 	}
 	pos[1] = y
 
+	handle := p.H()
 	return s.OpenVirtualChest(tx, pos, direction.Opposite(), session.VirtualContainerConfig{
 		Inventory: config.Inventory,
 		Title:     config.Title,
-		MoveTransient: func() {
-			p.MoveItemsToInventory()
-		},
-		OnTransaction: func(event session.VirtualContainerTransaction) {
-			if config.OnTransaction != nil {
-				config.OnTransaction(VirtualContainerTransaction{
-					ChangedSlots:   event.ChangedSlots,
-					TransientEmpty: event.TransientEmpty,
-				})
+		MoveTransient: func(tx *world.Tx) {
+			if current, ok := playerFromHandle(tx, handle); ok {
+				current.MoveItemsToInventory()
 			}
 		},
-		OnClose: config.OnClose,
+		OnTransaction: func(tx *world.Tx, event session.VirtualContainerTransaction) {
+			if config.OnTransaction != nil {
+				if current, ok := playerFromHandle(tx, handle); ok {
+					config.OnTransaction(tx, current, VirtualContainerTransaction{
+						ChangedSlots:   event.ChangedSlots,
+						TransientEmpty: event.TransientEmpty,
+					})
+				}
+			}
+		},
+		OnClose: func(tx *world.Tx) {
+			if config.OnClose == nil {
+				return
+			}
+			current, _ := playerFromHandle(tx, handle)
+			config.OnClose(tx, current)
+		},
 	})
+}
+
+func playerFromHandle(tx *world.Tx, handle *world.EntityHandle) (*Player, bool) {
+	if tx == nil || handle == nil {
+		return nil, false
+	}
+	entity, ok := handle.Entity(tx)
+	if !ok {
+		return nil, false
+	}
+	p, ok := entity.(*Player)
+	return p, ok
 }
 
 // CloseContainer closes the Player's current block or virtual container.

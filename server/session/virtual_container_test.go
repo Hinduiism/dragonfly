@@ -78,8 +78,13 @@ func TestVirtualChestRoutesRequestsAndPublishesTransientState(t *testing.T) {
 
 		var events []VirtualContainerTransaction
 		if err := s.OpenVirtualChest(tx, cube.Pos{0, 70, 0}, cube.North, VirtualContainerConfig{
-			Inventory:     container,
-			OnTransaction: func(event VirtualContainerTransaction) { events = append(events, event) },
+			Inventory: container,
+			OnTransaction: func(callbackTx *world.Tx, event VirtualContainerTransaction) {
+				if callbackTx != tx {
+					t.Fatal("transaction callback received the wrong world transaction")
+				}
+				events = append(events, event)
+			},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -134,7 +139,7 @@ func TestVirtualChestRejectedRequestDoesNotPublish(t *testing.T) {
 		published := 0
 		if err := s.OpenVirtualChest(tx, cube.Pos{0, 70, 0}, cube.North, VirtualContainerConfig{
 			Inventory:     container,
-			OnTransaction: func(VirtualContainerTransaction) { published++ },
+			OnTransaction: func(*world.Tx, VirtualContainerTransaction) { published++ },
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -169,11 +174,14 @@ func TestVirtualChestCloseIsExactOnceAndMovesTransientItemsFirst(t *testing.T) {
 		}
 		if err := s.OpenVirtualChest(tx, cube.Pos{0, 70, 0}, cube.North, VirtualContainerConfig{
 			Inventory: inventory.New(54, nil),
-			MoveTransient: func() {
+			MoveTransient: func(*world.Tx) {
 				moved++
 				s.ui.Clear()
 			},
-			OnClose: func() {
+			OnClose: func(callbackTx *world.Tx) {
+				if callbackTx != tx {
+					t.Fatal("close callback received the wrong world transaction")
+				}
 				closed++
 				if !s.ui.Empty() {
 					t.Fatal("close callback ran before transient items were moved")
