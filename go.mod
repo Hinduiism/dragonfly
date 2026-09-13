@@ -2,6 +2,10 @@ module github.com/df-mc/dragonfly
 
 go 1.26.0
 
+replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20260912185055-f18c9fae41b1
+
+replace github.com/sandertv/go-raknet => github.com/ValorNetworks/go-raknet v0.0.0-20260912171643-ff3abea5648d
+
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479
 	github.com/cespare/xxhash/v2 v2.3.0

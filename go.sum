@@ -1,3 +1,7 @@
+github.com/ValorNetworks/go-raknet v0.0.0-20260912171643-ff3abea5648d h1:7Ft1uKh2c9tK0JjlbgfkW4xf3JCY1srcK0m3Vv5Eu4s=
+github.com/ValorNetworks/go-raknet v0.0.0-20260912171643-ff3abea5648d/go.mod h1:m8i0H2zIDryMgl0RLo/M/1BML0Oc6EpqgorBP9LgmKM=
+github.com/ValorNetworks/gophertunnel v0.0.0-20260912185055-f18c9fae41b1 h1:TKS7aXLku8bpOJxWUZKxvbEXmxquL5yYiGfgWxj4LCY=
+github.com/ValorNetworks/gophertunnel v0.0.0-20260912185055-f18c9fae41b1/go.mod h1:Z5DJYNTsHH27R18qCaMurOkohGauDvW4zQ6t2brQStc=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -86,10 +90,6 @@ github.com/pion/webrtc/v4 v4.2.16-0.20260627075746-7a223a6f4d4f h1:m39L6AcxVDq1G
 github.com/pion/webrtc/v4 v4.2.16-0.20260627075746-7a223a6f4d4f/go.mod h1:g/C+nTxS7qM2dBr1hRK56OTTD9zFzQDwZi3fMfZxFNM=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 h1:Oj7QsiwWTOLmCpOjjmW0Qwde4BE8F5+Kjz817qzICyk=
-github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/sandertv/gophertunnel v1.61.0 h1:kSvGrtgk/4IAi3Pqdm1C7koD5Y3PMYUgTj676HLwHPs=
-github.com/sandertv/gophertunnel v1.61.0/go.mod h1:JMKsf8DmVmn+qEVJ1IA9m7zEo9qHJ3ZN6IEvySEk9bs=
 github.com/segmentio/fasthash v1.0.3 h1:EI9+KE1EwvMLBWwjpRDc+fEM+prwxDYbslddQGtrmhM=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=

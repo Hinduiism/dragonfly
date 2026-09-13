@@ -1103,7 +1103,8 @@ func (s *Session) ViewBlockUpdates(pos world.SubChunkPos, updates []world.BlockU
 		return
 	}
 	s.writePacket(&packet.UpdateSubChunkBlocks{
-		Position: protocol.BlockPos{pos.X(), pos.Y(), pos.Z()},
+		// The packet addresses the sub-chunk by its block origin, not its index.
+		Position: protocol.BlockPos{pos.X() << 4, pos.Y() << 4, pos.Z() << 4},
 		Blocks:   blocks,
 		Extra:    extra,
 	})
