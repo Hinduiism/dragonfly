@@ -60,6 +60,9 @@ type Session struct {
 	entityRuntimeIDs map[*world.EntityHandle]uint64
 	entities         map[uint64]*world.EntityHandle
 	hiddenEntities   map[uuid.UUID]struct{}
+	// Private displays are confined to the player's current world owner.
+	entityViews           map[uint64]*EntityView
+	entityPropertySchemas map[string]world.EntityPropertySchema
 
 	environmentViewsMu sync.Mutex
 	environmentViews   environmentViewState
@@ -316,6 +319,7 @@ func (s *Session) Close(tx *world.Tx, c Controllable) {
 // close closes the session, which in turn closes the controllable and the connection that the session
 // manages.
 func (s *Session) close(tx *world.Tx, c Controllable) {
+	s.ClearEntityViews()
 	s.clearEnvironmentViews()
 	if tx != nil {
 		c.MoveItemsToInventory()
@@ -524,6 +528,13 @@ func (s *Session) sendChunks(tx *world.Tx, c Controllable) {
 
 // handleWorldSwitch handles the player of the Session switching worlds.
 func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable) {
+	// Source removal normally cleared these already. Do not clear newly created
+	// destination views when the chunk loader catches up with a transfer.
+	for _, v := range s.entityViews {
+		if v.world != w {
+			s.removeEntityView(v)
+		}
+	}
 	s.clearEnvironmentViews()
 	if s.conn.ClientCacheEnabled() {
 		s.blobMu.Lock()

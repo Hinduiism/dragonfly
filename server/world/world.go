@@ -1040,6 +1040,9 @@ func (w *World) removeEntity(e Entity, tx *Tx) *EntityHandle {
 		return nil
 	}
 	w.Handler().HandleEntityDespawn(tx, e)
+	if remover, ok := e.(EntityWorldRemover); ok {
+		remover.BeforeWorldRemoval(tx)
+	}
 
 	c := tx.chunk(pos)
 	c.Entities, c.modified = sliceutil.DeleteVal(c.Entities, handle), true

@@ -13,6 +13,12 @@ type InteractHandler struct{}
 // Handle ...
 func (h *InteractHandler) Handle(p packet.Packet, s *Session, _ *world.Tx, c Controllable) error {
 	pk := p.(*packet.Interact)
+	if pk.TargetEntityRuntimeID != 0 && pk.TargetEntityRuntimeID != selfEntityRuntimeID && pk.ActionType != packet.InteractActionOpenInventory {
+		if _, ok := s.entityFromRuntimeID(pk.TargetEntityRuntimeID); !ok {
+			// Private displays and removed actors are not interaction targets.
+			return nil
+		}
+	}
 	pos := c.Position()
 
 	switch pk.ActionType {

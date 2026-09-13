@@ -496,8 +496,9 @@ type HealingSource interface {
 // EntityRegistry is a mapping that EntityTypes may be registered to. It is used
 // for loading entities from disk in a World's Provider.
 type EntityRegistry struct {
-	conf EntityRegistryConfig
-	ent  map[string]EntityType
+	conf       EntityRegistryConfig
+	ent        map[string]EntityType
+	properties map[string]EntityPropertySchema
 }
 
 // EntityRegistryConfig holds functions used by the block and item packages to
@@ -545,15 +546,30 @@ type ArrowSpawnConfig struct {
 // New creates an EntityRegistry using conf and the EntityTypes passed.
 func (conf EntityRegistryConfig) New(ent []EntityType) EntityRegistry {
 	m := make(map[string]EntityType, len(ent))
+	properties := make(map[string]EntityPropertySchema)
 	for _, e := range ent {
 		name := e.EncodeEntity()
 		if _, ok := m[name]; ok {
 			panic("cannot register the same entity (" + name + ") twice")
 		}
 		m[name] = e
+		if definer, ok := e.(EntityPropertyDefiner); ok {
+			properties[name] = definer.EntityProperties()
+		}
 	}
-	return EntityRegistry{conf: conf, ent: m}
+	return EntityRegistry{conf: conf, ent: m, properties: properties}
 }
+
+// EntityProperties returns the immutable schema captured for an entity type.
+func (reg EntityRegistry) EntityProperties(name string) (EntityPropertySchema, bool) {
+	schema, ok := reg.properties[name]
+	return schema, ok
+}
+
+// EntityWorldRemover may release world-bound state just before an entity is
+// detached. It runs on the source world owner after HandleEntityDespawn, even
+// for a remove/re-add to the same world. It must not wait on another world.
+type EntityWorldRemover interface{ BeforeWorldRemoval(*Tx) }
 
 // Config returns the EntityRegistryConfig that was used to create the
 // EntityRegistry.
