@@ -2674,8 +2674,8 @@ func (p *Player) HideEntity(e world.Entity) {
 	}
 }
 
-// ShowEntity shows a world.Entity previously hidden from the Player using HideEntity. It does nothing if the entity
-// wasn't currently hidden.
+// ShowEntity shows a world.Entity previously hidden from the Player using HideEntity. For connected players, it also
+// re-evaluates configured player visibility so that a policy-suppressed entity may be shown without moving first.
 func (p *Player) ShowEntity(e world.Entity) {
 	if p.session() != session.Nop {
 		p.session().StartShowingEntity(e)

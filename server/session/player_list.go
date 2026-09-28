@@ -24,7 +24,7 @@ func (l *sessionList) reconcilePlayerList(target, viewer *Session) bool {
 
 func (l *sessionList) applyPlayerListDecision(target, viewer *Session, listed bool, revision uint64) bool {
 	viewer.publicationMu.Lock()
-	if !l.containsPair(target, viewer) {
+	if !target.registered.Load() || !viewer.registered.Load() {
 		viewer.publicationMu.Unlock()
 		return false
 	}
@@ -67,11 +67,17 @@ func (l *sessionList) removePlayerListEntry(target, viewer *Session) {
 	}
 	viewer.publicationMu.Lock()
 	state := viewer.playerList[target.ent]
+	actor := viewer.playerActors[target.ent]
 	queued := true
-	if state.initialized && state.listed {
+	if actor.visible {
+		runtimeID := viewer.ensurePlayerRuntimeID(target)
+		queued = viewer.writePublicationPacket(&packet.RemoveActor{EntityUniqueID: int64(runtimeID)})
+	}
+	if queued && state.initialized && state.listed {
 		queued = viewer.writePublicationPacket(playerListRemove(target.ent.UUID()))
 	}
 	delete(viewer.playerList, target.ent)
+	delete(viewer.playerActors, target.ent)
 	viewer.entityMutex.Lock()
 	if runtimeID, ok := viewer.entityRuntimeIDs[target.ent]; ok {
 		delete(viewer.entities, runtimeID)
@@ -111,11 +117,6 @@ func (s *Session) ensurePlayerRuntimeID(target *Session) uint64 {
 }
 
 func (s *Session) playerListEntry(runtimeID uint64) protocol.PlayerListEntry {
-	current := s.playerListSkin.Load()
-	var playerSkin skin.Skin
-	if current != nil {
-		playerSkin = *current
-	}
 	return protocol.PlayerListEntry{
 		ActionType:     protocol.PlayerListActionAdd,
 		UUID:           s.ent.UUID(),
@@ -123,8 +124,17 @@ func (s *Session) playerListEntry(runtimeID uint64) protocol.PlayerListEntry {
 		Username:       s.conn.IdentityData().DisplayName,
 		XUID:           s.conn.IdentityData().XUID,
 		BuildPlatform:  int32(protocol.DeviceUnknown),
-		Skin:           skinToProtocol(playerSkin),
+		Skin:           s.playerListProtocolSkin(),
 	}
+}
+
+func (s *Session) playerListProtocolSkin() protocol.Skin {
+	current := s.playerListSkin.Load()
+	var playerSkin skin.Skin
+	if current != nil {
+		playerSkin = *current
+	}
+	return skinToProtocol(playerSkin)
 }
 
 func playerListRemove(id uuid.UUID) *packet.PlayerList {

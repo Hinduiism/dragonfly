@@ -40,12 +40,21 @@ type OffsetEntity interface {
 	NetworkOffset() float64
 }
 
-// entityHidden checks if a world.Entity is being explicitly hidden from the Session.
-func (s *Session) entityHidden(e world.Entity) bool {
+// entityExplicitlyHidden checks if a world.Entity is being explicitly hidden
+// from the Session.
+func (s *Session) entityExplicitlyHidden(e world.Entity) bool {
 	s.entityMutex.RLock()
 	_, ok := s.hiddenEntities[e.H().UUID()]
 	s.entityMutex.RUnlock()
 	return ok
+}
+
+func (s *Session) entityHidden(e world.Entity) bool {
+	if s.entityExplicitlyHidden(e) {
+		return true
+	}
+	connected, visible := s.playerActorPublished(e.H())
+	return connected && !visible
 }
 
 // ViewEntity ...
@@ -54,7 +63,13 @@ func (s *Session) ViewEntity(e world.Entity) {
 		s.ViewEntityState(e)
 		return
 	}
-	if s.entityHidden(e) {
+	if controllable, ok := e.(Controllable); ok {
+		if target, connected := sessions.LookupHandle(e.H()); connected {
+			s.viewConnectedPlayer(controllable, target)
+			return
+		}
+	}
+	if s.entityExplicitlyHidden(e) {
 		return
 	}
 	var runtimeID uint64
@@ -78,17 +93,14 @@ func (s *Session) ViewEntity(e world.Entity) {
 	id := e.H().Type().EncodeEntity()
 	switch v := e.(type) {
 	case Controllable:
-		_, actualPlayer := sessions.Lookup(v.UUID())
-		if !actualPlayer {
-			s.writePacket(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{
-				ActionType:     protocol.PlayerListActionAdd,
-				UUID:           v.UUID(),
-				EntityUniqueID: int64(runtimeID),
-				Username:       v.Name(),
-				BuildPlatform:  int32(protocol.DeviceUnknown),
-				Skin:           skinToProtocol(v.Skin()),
-			}}})
-		}
+		s.writePacket(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{
+			ActionType:     protocol.PlayerListActionAdd,
+			UUID:           v.UUID(),
+			EntityUniqueID: int64(runtimeID),
+			Username:       v.Name(),
+			BuildPlatform:  int32(protocol.DeviceUnknown),
+			Skin:           skinToProtocol(v.Skin()),
+		}}})
 
 		s.writePacket(&packet.AddPlayer{
 			EntityMetadata:  metadata,
@@ -109,14 +121,10 @@ func (s *Session) ViewEntity(e world.Entity) {
 				}},
 			},
 		})
-		if !actualPlayer {
-			s.writePacket(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{
-				ActionType: protocol.PlayerListActionRemove,
-				UUID:       v.UUID(),
-			}}})
-		} else {
-			s.ViewSkin(e)
-		}
+		s.writePacket(&packet.PlayerList{Entries: []protocol.PlayerListEntry{{
+			ActionType: protocol.PlayerListActionRemove,
+			UUID:       v.UUID(),
+		}}})
 		return
 	case *entity.Ent:
 		switch e.H().Type() {
@@ -177,6 +185,9 @@ func (s *Session) ViewEntityGameMode(e world.Entity) {
 // HideEntity ...
 func (s *Session) HideEntity(e world.Entity) {
 	if s.entityRuntimeID(e) == selfEntityRuntimeID {
+		return
+	}
+	if s.hideConnectedPlayer(e, true) {
 		return
 	}
 
@@ -1130,6 +1141,9 @@ func (s *Session) viewBlockActorData(pos cube.Pos, b world.Block) {
 
 // ViewEntityAction ...
 func (s *Session) ViewEntityAction(e world.Entity, a world.EntityAction) {
+	if s.entityHidden(e) {
+		return
+	}
 	switch act := a.(type) {
 	case entity.SwingArmAction:
 		if _, ok := e.(Controllable); ok {
@@ -1221,6 +1235,9 @@ func (s *Session) ViewEntityAction(e world.Entity, a world.EntityAction) {
 
 // ViewEntityState ...
 func (s *Session) ViewEntityState(e world.Entity) {
+	if s.entityHidden(e) {
+		return
+	}
 	s.writePacket(&packet.SetActorData{
 		EntityRuntimeID: s.entityRuntimeID(e),
 		EntityMetadata:  s.entityMetadata(e),
@@ -1261,6 +1278,9 @@ func (s *Session) entityMetadata(e world.Entity) protocol.EntityMetadata {
 
 // ViewEntityAnimation ...
 func (s *Session) ViewEntityAnimation(e world.Entity, a world.EntityAnimation) {
+	if s.entityHidden(e) {
+		return
+	}
 	s.writePacket(&packet.AnimateEntity{
 		Animation:     a.Name(),
 		NextState:     a.NextState(),
@@ -1435,6 +1455,9 @@ func (s *Session) ViewBlockAction(pos cube.Pos, a world.BlockAction) {
 
 // ViewEmote ...
 func (s *Session) ViewEmote(player world.Entity, emote uuid.UUID) {
+	if s.entityHidden(player) {
+		return
+	}
 	flags := byte(packet.EmoteFlagServerSide)
 	if s.emoteChatMuted {
 		flags |= packet.EmoteFlagMuteChat
@@ -1448,6 +1471,9 @@ func (s *Session) ViewEmote(player world.Entity, emote uuid.UUID) {
 
 // ViewSkin ...
 func (s *Session) ViewSkin(e world.Entity) {
+	if s.entityHidden(e) {
+		return
+	}
 	if v, ok := e.(Controllable); ok {
 		s.writePacket(&packet.PlayerSkin{
 			UUID: v.UUID(),
@@ -1474,6 +1500,9 @@ func (s *Session) ViewWeather(raining, thunder bool) {
 
 // ViewEntityWake ...
 func (s *Session) ViewEntityWake(e world.Entity) {
+	if s.entityHidden(e) {
+		return
+	}
 	s.writePacket(&packet.Animate{
 		EntityRuntimeID: s.entityRuntimeID(e),
 		ActionType:      packet.AnimateActionStopSleep,

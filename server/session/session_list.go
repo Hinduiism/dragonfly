@@ -20,6 +20,7 @@ func (l *sessionList) Add(s *Session) {
 	l.mu.Lock()
 	others := slices.Clone(l.s)
 	l.s = append(l.s, s)
+	s.registered.Store(true)
 	l.mu.Unlock()
 
 	for _, other := range others {
@@ -36,12 +37,14 @@ func (l *sessionList) Remove(s *Session, entity world.Entity) {
 	l.mu.Lock()
 	removedFrom := slices.Clone(l.s)
 	l.s = sliceutil.DeleteVal(l.s, s)
+	s.registered.Store(false)
 	l.mu.Unlock()
 	for _, other := range removedFrom {
 		l.removePlayerListEntry(s, other)
 	}
 	s.publicationMu.Lock()
 	clear(s.playerList)
+	clear(s.playerActors)
 	s.publicationMu.Unlock()
 
 	if entity == nil {
@@ -72,12 +75,6 @@ func (l *sessionList) snapshot() []*Session {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	return slices.Clone(l.s)
-}
-
-func (l *sessionList) containsPair(target, viewer *Session) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return slices.Contains(l.s, target) && slices.Contains(l.s, viewer)
 }
 
 func (l *sessionList) Lookup(id uuid.UUID) (*Session, bool) {

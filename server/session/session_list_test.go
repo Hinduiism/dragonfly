@@ -51,10 +51,18 @@ func newPublicationSession(name string, capacity int, policy func(viewer, target
 		entities:               make(map[uint64]*world.EntityHandle),
 		hiddenEntities:         make(map[uuid.UUID]struct{}),
 		playerList:             make(map[*world.EntityHandle]playerListState),
+		playerActors:           make(map[*world.EntityHandle]playerActorState),
 		currentEntityRuntimeID: selfEntityRuntimeID,
 	}
 	s.SetPlayerListSkin(skin.New(64, 64))
 	return s, conn
+}
+
+func setPublicationSessions(l *sessionList, current ...*Session) {
+	l.s = current
+	for _, s := range current {
+		s.registered.Store(true)
+	}
 }
 
 func playerListPackets(s *Session) []*packet.PlayerList {
@@ -171,7 +179,7 @@ func TestSessionListPublicationSaturationClosesViewer(t *testing.T) {
 	l := new(sessionList)
 	viewer, conn := newPublicationSession("Viewer", 1, nil)
 	target, _ := newPublicationSession("Target", 1, nil)
-	l.s = []*Session{viewer, target}
+	setPublicationSessions(l, viewer, target)
 	viewer.packets <- &packet.PlayStatus{}
 	if l.reconcilePlayerList(target, viewer) {
 		t.Fatal("saturated publication reported success")

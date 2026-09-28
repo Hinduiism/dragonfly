@@ -61,8 +61,10 @@ type Session struct {
 	entities         map[uint64]*world.EntityHandle
 	hiddenEntities   map[uuid.UUID]struct{}
 
-	publicationMu sync.Mutex
+	publicationMu sync.RWMutex
 	playerList    map[*world.EntityHandle]playerListState
+	playerActors  map[*world.EntityHandle]playerActorState
+	registered    atomic.Bool
 	// Private displays are confined to the player's current world owner.
 	entityViews           map[uint64]*EntityView
 	entityPropertySchemas map[string]world.EntityPropertySchema
@@ -209,6 +211,7 @@ func (conf Config) New(conn Conn) *Session {
 		entities:               map[uint64]*world.EntityHandle{},
 		hiddenEntities:         map[uuid.UUID]struct{}{},
 		playerList:             map[*world.EntityHandle]playerListState{},
+		playerActors:           map[*world.EntityHandle]playerActorState{},
 		blobs:                  map[uint64][]byte{},
 		chunkRadius:            int32(r),
 		requestedChunkRadius:   requested,

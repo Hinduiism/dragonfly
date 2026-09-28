@@ -44,11 +44,14 @@ func (s *Session) StopShowingEntity(e world.Entity) {
 	s.entityMutex.Unlock()
 
 	if !ok {
-		s.HideEntity(e)
+		if !s.hideConnectedPlayer(e, false) {
+			s.HideEntity(e)
+		}
 	}
 }
 
 // StartShowingEntity starts showing a world.Entity to the Session that was previously hidden using StopShowingEntity.
+// Connected players are also re-evaluated against the configured player visibility policy.
 func (s *Session) StartShowingEntity(e world.Entity) {
 	s.entityMutex.Lock()
 	_, ok := s.hiddenEntities[e.H().UUID()]
@@ -56,6 +59,12 @@ func (s *Session) StartShowingEntity(e world.Entity) {
 		delete(s.hiddenEntities, e.H().UUID())
 	}
 	s.entityMutex.Unlock()
+	if target, connected := sessions.LookupHandle(e.H()); connected {
+		if actor, valid := e.(playerActor); valid {
+			s.refreshConnectedPlayer(actor, target)
+			return
+		}
+	}
 
 	if ok {
 		s.ViewEntity(e)
