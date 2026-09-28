@@ -56,6 +56,7 @@ type playerData struct {
 	inv, offHand, enderChest, ui *inventory.Inventory
 	armour                       *inventory.Armour
 	heldSlot                     *uint32
+	transientEpoch               uint64
 
 	sneaking, sprinting, swimming, gliding, crawling, flying,
 	invisible, immobile, onGround, usingItem bool
@@ -1018,6 +1019,7 @@ func (p *Player) dropItems() {
 // crafting grid of slots in an enchantment table, to the player's inventory.
 // If no space is left for these items, the leftover items are dropped.
 func (p *Player) MoveItemsToInventory() {
+	p.transientEpoch++
 	for _, i := range p.ui.Clear() {
 		if n, err := p.inv.AddItem(i); err != nil {
 			// We couldn't add the item to the main inventory (probably because
