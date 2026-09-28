@@ -16,9 +16,10 @@ import (
 // an inventory is invalid. Use New() to obtain a new inventory.
 // Inventory is safe for concurrent usage: Its values are protected by a mutex.
 type Inventory struct {
-	mu    sync.RWMutex
-	h     Handler
-	slots []item.Stack
+	mu       sync.RWMutex
+	h        Handler
+	slots    []item.Stack
+	revision uint64
 
 	f         SlotFunc
 	validator SlotValidatorFunc
@@ -111,6 +112,17 @@ func (inv *Inventory) Slots() []item.Stack {
 	inv.mu.RLock()
 	defer inv.mu.RUnlock()
 	return slices.Clone(inv.slots)
+}
+
+// Revision returns the number of accepted slot mutations made to this
+// inventory. Callers must combine it with the identity of the Inventory: A
+// clone or merged inventory starts with its own revision at zero.
+func (inv *Inventory) Revision() uint64 {
+	inv.mu.RLock()
+	defer inv.mu.RUnlock()
+
+	inv.check()
+	return inv.revision
 }
 
 // Items returns a list of all contents of the inventory. This method excludes air items, so the method
@@ -376,6 +388,7 @@ func (inv *Inventory) setItem(slot int, it item.Stack) func() {
 	}
 	before := inv.slots[slot]
 	inv.slots[slot] = it
+	inv.revision++
 	return func() {
 		inv.f(slot, before, it)
 	}
