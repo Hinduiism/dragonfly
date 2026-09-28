@@ -582,6 +582,7 @@ func (srv *Server) createPlayer(id uuid.UUID, conn session.Conn, conf player.Con
 		HandleStop:            srv.handleSessionClose,
 		BlockRegistry:         w.BlockRegistry(),
 		EnchantingTablePolicy: srv.conf.EnchantingTablePolicy,
+		PlayerVisibility:      srv.conf.PlayerVisibility,
 	}.New(conn)
 
 	conf.Name = conn.IdentityData().DisplayName

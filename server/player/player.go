@@ -216,6 +216,7 @@ func (p *Player) SetSkin(skin skin.Skin) {
 		return
 	}
 	p.skin = skin
+	p.session().SetPlayerListSkin(skin)
 	for _, v := range p.viewers() {
 		v.ViewSkin(p)
 	}

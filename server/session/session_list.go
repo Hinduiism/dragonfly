@@ -5,11 +5,8 @@ import (
 	"sync"
 
 	"github.com/df-mc/dragonfly/server/internal/sliceutil"
-	"github.com/df-mc/dragonfly/server/player/skin"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
-	"github.com/sandertv/gophertunnel/minecraft/protocol"
-	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 var sessions = new(sessionList)
@@ -21,27 +18,31 @@ type sessionList struct {
 
 func (l *sessionList) Add(s *Session) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	others := slices.Clone(l.s)
+	l.s = append(l.s, s)
+	l.mu.Unlock()
 
-	for _, other := range l.s {
+	for _, other := range others {
 		// Show all sessions to the new session and the new session to all
 		// existing sessions.
-		l.sendSessionTo(s, other)
-		l.sendSessionTo(other, s)
+		l.reconcilePlayerList(s, other)
+		l.reconcilePlayerList(other, s)
 	}
 	// Show the new session to itself.
-	l.sendSessionTo(s, s)
-	l.s = append(l.s, s)
+	l.reconcilePlayerList(s, s)
 }
 
 func (l *sessionList) Remove(s *Session, entity world.Entity) {
 	l.mu.Lock()
 	removedFrom := slices.Clone(l.s)
-	for _, other := range l.s {
-		l.unsendSessionFrom(s, other)
-	}
 	l.s = sliceutil.DeleteVal(l.s, s)
 	l.mu.Unlock()
+	for _, other := range removedFrom {
+		l.removePlayerListEntry(s, other)
+	}
+	s.publicationMu.Lock()
+	clear(s.playerList)
+	s.publicationMu.Unlock()
 
 	if entity == nil {
 		return
@@ -51,6 +52,32 @@ func (l *sessionList) Remove(s *Session, entity world.Entity) {
 			other.viewLayer.Remove(entity)
 		}
 	}
+}
+
+func (l *sessionList) LookupHandle(handle *world.EntityHandle) (*Session, bool) {
+	if handle == nil {
+		return nil, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, current := range l.s {
+		if current.ent == handle {
+			return current, true
+		}
+	}
+	return nil, false
+}
+
+func (l *sessionList) snapshot() []*Session {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.s)
+}
+
+func (l *sessionList) containsPair(target, viewer *Session) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Contains(l.s, target) && slices.Contains(l.s, viewer)
 }
 
 func (l *sessionList) Lookup(id uuid.UUID) (*Session, bool) {
@@ -63,94 +90,4 @@ func (l *sessionList) Lookup(id uuid.UUID) (*Session, bool) {
 		return l.s[index], true
 	}
 	return nil, false
-}
-
-func (l *sessionList) sendSessionTo(s, to *Session) {
-	runtimeID := uint64(selfEntityRuntimeID)
-
-	to.entityMutex.Lock()
-	if s != to {
-		to.currentEntityRuntimeID += 1
-		runtimeID = to.currentEntityRuntimeID
-	}
-	to.entityRuntimeIDs[s.ent] = runtimeID
-	to.entities[runtimeID] = s.ent
-	to.entityMutex.Unlock()
-
-	to.writePacket(&packet.PlayerList{
-		Entries: []protocol.PlayerListEntry{{
-			ActionType:     protocol.PlayerListActionAdd,
-			UUID:           s.ent.UUID(),
-			EntityUniqueID: int64(runtimeID),
-			Username:       s.conn.IdentityData().DisplayName,
-			XUID:           s.conn.IdentityData().XUID,
-			BuildPlatform:  int32(protocol.DeviceUnknown),
-			Skin:           skinToProtocol(s.joinSkin),
-		}},
-	})
-}
-
-func (l *sessionList) unsendSessionFrom(s, from *Session) {
-	from.entityMutex.Lock()
-	delete(from.entities, from.entityRuntimeIDs[s.ent])
-	delete(from.entityRuntimeIDs, s.ent)
-	from.entityMutex.Unlock()
-
-	from.writePacket(&packet.PlayerList{
-		Entries: []protocol.PlayerListEntry{{
-			ActionType: protocol.PlayerListActionRemove,
-			UUID:       s.ent.UUID(),
-		}},
-	})
-}
-
-// skinToProtocol converts a skin to its protocol representation.
-func skinToProtocol(s skin.Skin) protocol.Skin {
-	var animations []protocol.SkinAnimation
-	for _, animation := range s.Animations {
-		protocolAnim := protocol.SkinAnimation{
-			ImageWidth:  uint32(animation.Bounds().Max.X),
-			ImageHeight: uint32(animation.Bounds().Max.Y),
-			ImageData:   animation.Pix,
-			FrameCount:  float32(animation.FrameCount),
-		}
-		switch animation.Type() {
-		case skin.AnimationHead:
-			protocolAnim.AnimationType = protocol.SkinAnimationHead
-		case skin.AnimationBody32x32:
-			protocolAnim.AnimationType = protocol.SkinAnimationBody32x32
-		case skin.AnimationBody128x128:
-			protocolAnim.AnimationType = protocol.SkinAnimationBody128x128
-		}
-		protocolAnim.ExpressionType = uint32(animation.AnimationExpression)
-		animations = append(animations, protocolAnim)
-	}
-
-	fullID := s.FullID
-	if fullID == "" {
-		fullID = uuid.New().String()
-	}
-	model := s.Model
-	if len(model) == 0 {
-		model = []byte("{}")
-	}
-	return protocol.Skin{
-		PlayFabID:                 s.PlayFabID,
-		SkinID:                    uuid.New().String(),
-		SkinResourcePatch:         s.ModelConfig.Encode(),
-		SkinImageWidth:            uint32(s.Bounds().Max.X),
-		SkinImageHeight:           uint32(s.Bounds().Max.Y),
-		SkinData:                  s.Pix,
-		CapeImageWidth:            uint32(s.Cape.Bounds().Max.X),
-		CapeImageHeight:           uint32(s.Cape.Bounds().Max.Y),
-		CapeData:                  s.Cape.Pix,
-		SkinGeometry:              model,
-		PersonaSkin:               s.Persona,
-		CapeID:                    uuid.New().String(),
-		FullID:                    fullID,
-		Animations:                animations,
-		Trusted:                   true,
-		OverrideAppearance:        true,
-		GeometryDataEngineVersion: []byte(protocol.CurrentVersion),
-	}
 }

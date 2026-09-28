@@ -60,6 +60,9 @@ type Session struct {
 	entityRuntimeIDs map[*world.EntityHandle]uint64
 	entities         map[uint64]*world.EntityHandle
 	hiddenEntities   map[uuid.UUID]struct{}
+
+	publicationMu sync.Mutex
+	playerList    map[*world.EntityHandle]playerListState
 	// Private displays are confined to the player's current world owner.
 	entityViews           map[uint64]*EntityView
 	entityPropertySchemas map[string]world.EntityPropertySchema
@@ -72,10 +75,7 @@ type Session struct {
 	inv, offHand, enderChest, ui *inventory.Inventory
 	armour                       *inventory.Armour
 
-	// joinSkin is the first skin that the player joined with. It is sent on
-	// spawn for the player list, but otherwise updated immediately when the
-	// player is viewed.
-	joinSkin skin.Skin
+	playerListSkin atomic.Pointer[skin.Skin]
 
 	breakingPos cube.Pos
 
@@ -182,6 +182,10 @@ type Config struct {
 	// EnchantingTablePolicy controls enchanting-table offer generation. If nil,
 	// normal Dragonfly behavior is used.
 	EnchantingTablePolicy *item.EnchantingTablePolicy
+	// PlayerVisibility decides actor publication and player-list membership for
+	// exact connected player handles. Revisions must increase when decisions
+	// change. If nil, normal visibility is used.
+	PlayerVisibility func(viewer, target *world.EntityHandle) (entityVisible, listed bool, revision uint64)
 }
 
 func (conf Config) New(conn Conn) *Session {
@@ -204,6 +208,7 @@ func (conf Config) New(conn Conn) *Session {
 		entityRuntimeIDs:       map[*world.EntityHandle]uint64{},
 		entities:               map[uint64]*world.EntityHandle{},
 		hiddenEntities:         map[uuid.UUID]struct{}{},
+		playerList:             map[*world.EntityHandle]playerListState{},
 		blobs:                  map[uint64][]byte{},
 		chunkRadius:            int32(r),
 		requestedChunkRadius:   requested,
@@ -261,8 +266,15 @@ func (s *Session) SetHandle(handle *world.EntityHandle, skin skin.Skin) {
 	s.entityRuntimeIDs[handle] = selfEntityRuntimeID
 	s.entities[selfEntityRuntimeID] = handle
 
-	s.joinSkin = skin
+	s.SetPlayerListSkin(skin)
 	sessions.Add(s)
+}
+
+// SetPlayerListSkin publishes the current immutable skin snapshot used when
+// this session is added back to another player's list.
+func (s *Session) SetPlayerListSkin(value skin.Skin) {
+	current := value
+	s.playerListSkin.Store(&current)
 }
 
 // Spawn makes the Controllable passed spawn in the world.World.
@@ -654,6 +666,23 @@ func (s *Session) writePacket(pk packet.Packet) {
 	select {
 	case s.packets <- pk:
 	case <-s.closeBackground:
+	}
+}
+
+// writePublicationPacket queues a required list/actor publication packet
+// without waiting while a publication lock is held. A full queue is a hard
+// failure: the caller must close the viewer rather than silently lose ordering.
+func (s *Session) writePublicationPacket(pk packet.Packet) bool {
+	if s == Nop {
+		return true
+	}
+	select {
+	case s.packets <- pk:
+		return true
+	case <-s.closeBackground:
+		return false
+	default:
+		return false
 	}
 }
 
