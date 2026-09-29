@@ -80,9 +80,10 @@ type playerData struct {
 	flightSpeed         float64
 	verticalFlightSpeed float64
 
-	health     *entity.HealthManager
-	experience *entity.ExperienceManager
-	effects    *entity.EffectManager
+	health             *entity.HealthManager
+	experience         *entity.ExperienceManager
+	experienceRevision uint64
+	effects            *entity.EffectManager
 
 	lastXPPickup *time.Time
 
@@ -1003,6 +1004,7 @@ func (p *Player) dropItems() {
 		p.tx.AddEntity(orb)
 	}
 	p.experience.Reset()
+	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 
 	p.MoveItemsToInventory()
@@ -2517,6 +2519,13 @@ func (p *Player) Experience() int {
 	return p.experience.Experience()
 }
 
+// ExperienceRevision returns the number of accepted experience mutations made
+// to the player since it was created. The revision is process-local and must be
+// combined with the identity of this Player when used for optimistic checks.
+func (p *Player) ExperienceRevision() uint64 {
+	return p.experienceRevision
+}
+
 // EnchantmentSeed is a seed used to calculate random enchantments with enchantment tables.
 func (p *Player) EnchantmentSeed() int64 {
 	return p.enchantSeed
@@ -2535,6 +2544,7 @@ func (p *Player) AddExperience(amount int) int {
 	}
 	before := p.experience.Level()
 	level, _ := p.experience.Add(amount)
+	p.experienceRevision++
 	if level/5 > before/5 {
 		p.PlaySound(sound.LevelUp{})
 	} else if amount > 0 {
@@ -2547,6 +2557,7 @@ func (p *Player) AddExperience(amount int) int {
 // RemoveExperience removes experience from the player.
 func (p *Player) RemoveExperience(amount int) {
 	p.experience.Add(-amount)
+	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 }
 
@@ -2559,6 +2570,7 @@ func (p *Player) ExperienceLevel() int {
 // otherwise the method panics.
 func (p *Player) SetExperienceLevel(level int) {
 	p.experience.SetLevel(level)
+	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 }
 
@@ -2571,6 +2583,7 @@ func (p *Player) ExperienceProgress() float64 {
 // the method panics.
 func (p *Player) SetExperienceProgress(progress float64) {
 	p.experience.SetProgress(progress)
+	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 }
 
