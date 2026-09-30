@@ -196,6 +196,53 @@ func TestTransientInventorySettlementInvalidatesRestore(t *testing.T) {
 	})
 }
 
+func TestTransientInventorySlotsRestoreDurableCustody(t *testing.T) {
+	runtime := world.Config{Synchronous: true}.New()
+	t.Cleanup(func() { _ = runtime.Close() })
+	err := runtime.Do(func(tx *world.Tx) {
+		first := addTransientInventoryPlayer(tx, "First")
+		second := addTransientInventoryPlayer(tx, "Second")
+		cursor := item.NewStack(item.Diamond{}, 2).WithCustomName("durable cursor")
+		result := item.NewStack(item.Apple{}, 3).WithCustomName("durable result")
+		if err := first.ui.SetItem(0, cursor); err != nil {
+			t.Fatal(err)
+		}
+		if err := first.ui.SetItem(50, result); err != nil {
+			t.Fatal(err)
+		}
+		custody, _, err := first.TakeTransientInventory(first.ui.Revision())
+		if err != nil {
+			t.Fatal(err)
+		}
+		slots := custody.Slots()
+		before := second.ui.Revision()
+		if _, err = second.RestoreTransientInventorySlots(slots[:len(slots)-1], before); !errors.Is(err, ErrTransientInventorySnapshot) {
+			t.Fatalf("wrong-size restore error = %v", err)
+		}
+		if _, err = second.RestoreTransientInventorySlots(slots, before+1); !errors.Is(err, ErrTransientInventoryChanged) {
+			t.Fatalf("stale restore error = %v", err)
+		}
+		if !second.ui.Empty() {
+			t.Fatal("failed durable restore changed transient storage")
+		}
+		if _, err = second.RestoreTransientInventorySlots(slots, before); err != nil {
+			t.Fatalf("durable restore error = %v", err)
+		}
+		if got, _ := second.ui.Item(0); !got.Equal(cursor) {
+			t.Fatalf("restored cursor = %v, want %v", got, cursor)
+		}
+		if got, _ := second.ui.Item(50); !got.Equal(result) {
+			t.Fatalf("restored result = %v, want %v", got, result)
+		}
+		if _, err = second.RestoreTransientInventorySlots(slots, second.ui.Revision()); !errors.Is(err, ErrTransientInventoryOccupied) {
+			t.Fatalf("occupied restore error = %v", err)
+		}
+	}).Wait(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTransientInventoryCustodyRestoresAtMostOnce(t *testing.T) {
 	withTransientInventoryPlayer(t, func(_ *world.Tx, p *Player) {
 		if err := p.ui.SetItem(0, item.NewStack(item.Diamond{}, 1)); err != nil {

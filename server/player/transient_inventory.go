@@ -126,3 +126,30 @@ func (p *Player) RestoreTransientInventory(snapshot TransientInventorySnapshot, 
 	}
 	return p.ui.Revision(), nil
 }
+
+// RestoreTransientInventorySlots restores copied cursor, crafting and
+// workstation slots into empty transient storage. It is intended for durable
+// recovery after the original TransientInventorySnapshot can no longer name
+// the same Player or container epoch. The caller must own the copied items and
+// durably fence the recovery so the same custody cannot be applied twice.
+//
+// It must be called on the Player's current world owner at a completed item-
+// transaction boundary. Validation failures leave all slots unchanged.
+func (p *Player) RestoreTransientInventorySlots(slots []item.Stack, expectedRevision uint64) (uint64, error) {
+	if len(slots) != p.ui.Size() {
+		return p.ui.Revision(), ErrTransientInventorySnapshot
+	}
+	if revision := p.ui.Revision(); revision != expectedRevision {
+		return revision, ErrTransientInventoryChanged
+	}
+	if !p.ui.Empty() {
+		return p.ui.Revision(), ErrTransientInventoryOccupied
+	}
+	for slot, stack := range slots {
+		if stack.Empty() {
+			continue
+		}
+		_ = p.ui.SetItem(slot, stack)
+	}
+	return p.ui.Revision(), nil
+}
