@@ -7,5 +7,8 @@ func TestDetachedPlayerListRefreshIsSafe(t *testing.T) {
 	if p.RefreshPlayerListEntry(nil) {
 		t.Fatal("detached player refreshed a nil target")
 	}
+	if p.RefreshPlayerVisibility(nil) {
+		t.Fatal("detached player refreshed a nil target actor")
+	}
 	p.RefreshPlayerList()
 }

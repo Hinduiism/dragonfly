@@ -27,6 +27,21 @@ type playerActorPublication struct {
 	skin *packet.PlayerSkin
 }
 
+// RefreshPlayerVisibility re-evaluates an exact connected player's actor and
+// player-list publication for this viewer without changing explicit entity
+// visibility markers.
+func (s *Session) RefreshPlayerVisibility(target world.Entity) bool {
+	if s == nil || target == nil {
+		return false
+	}
+	actor, valid := target.(playerActor)
+	if !valid {
+		return false
+	}
+	targetSession, connected := sessions.LookupHandle(target.H())
+	return connected && s.refreshConnectedPlayer(actor, targetSession)
+}
+
 func (s *Session) viewConnectedPlayer(actor playerActor, target *Session) bool {
 	entityVisible, listed, revision := s.playerVisibility(target.ent)
 	var publication playerActorPublication

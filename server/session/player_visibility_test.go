@@ -150,6 +150,36 @@ func TestConnectedPlayerExplicitHideAndSameRevisionReplay(t *testing.T) {
 	}
 }
 
+func TestRefreshPlayerVisibilityPreservesExplicitHide(t *testing.T) {
+	l := new(sessionList)
+	withPublicationSessionList(t, l)
+	viewer, _ := newPublicationSession("Viewer", 32, func(_, _ *world.EntityHandle) (bool, bool, uint64) {
+		return true, true, 2
+	})
+	target, _ := newPublicationSession("Target", 32, nil)
+	actor := newPublicationActor(target, "Target")
+	setPublicationSessions(l, viewer, target)
+	if !viewer.viewConnectedPlayer(actor, target) {
+		t.Fatal("initial actor publication failed")
+	}
+	_ = drainPublicationPackets(viewer)
+
+	viewer.StopShowingEntity(actor)
+	_ = drainPublicationPackets(viewer)
+	if !viewer.RefreshPlayerVisibility(actor) {
+		t.Fatal("visibility refresh failed")
+	}
+	if packets := drainPublicationPackets(viewer); len(packets) != 0 {
+		t.Fatalf("refresh bypassed explicit hide: %#v", packets)
+	}
+	viewer.entityMutex.RLock()
+	_, hidden := viewer.hiddenEntities[actor.UUID()]
+	viewer.entityMutex.RUnlock()
+	if !hidden {
+		t.Fatal("refresh cleared explicit hide marker")
+	}
+}
+
 func TestConnectedPlayerWorldHideRetiresStreamedActor(t *testing.T) {
 	l := new(sessionList)
 	withPublicationSessionList(t, l)

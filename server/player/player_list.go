@@ -20,3 +20,14 @@ func (p *Player) RefreshPlayerList() {
 	}
 	p.session().RefreshPlayerList()
 }
+
+// RefreshPlayerVisibility re-evaluates one exact connected target's actor and
+// player-list publication for this viewer. Unlike ShowEntity, it does not
+// change an explicit HideEntity marker. It returns false if either player is
+// detached or publication could not be queued.
+func (p *Player) RefreshPlayerVisibility(target *Player) bool {
+	if p == nil || target == nil || p.session() == nil {
+		return false
+	}
+	return p.session().RefreshPlayerVisibility(target)
+}
