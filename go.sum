@@ -1,7 +1,7 @@
 github.com/ValorNetworks/go-raknet v0.0.0-20260912171643-ff3abea5648d h1:7Ft1uKh2c9tK0JjlbgfkW4xf3JCY1srcK0m3Vv5Eu4s=
 github.com/ValorNetworks/go-raknet v0.0.0-20260912171643-ff3abea5648d/go.mod h1:m8i0H2zIDryMgl0RLo/M/1BML0Oc6EpqgorBP9LgmKM=
-github.com/ValorNetworks/gophertunnel v0.0.0-20260912185055-f18c9fae41b1 h1:TKS7aXLku8bpOJxWUZKxvbEXmxquL5yYiGfgWxj4LCY=
-github.com/ValorNetworks/gophertunnel v0.0.0-20260912185055-f18c9fae41b1/go.mod h1:Z5DJYNTsHH27R18qCaMurOkohGauDvW4zQ6t2brQStc=
+github.com/ValorNetworks/gophertunnel v0.0.0-20260930220034-fa13c01c0100 h1:hjELDG4fGG6BE4qfly4g+Xa5D5kuZScvoR+FGw4918c=
+github.com/ValorNetworks/gophertunnel v0.0.0-20260930220034-fa13c01c0100/go.mod h1:Gg/UQvzI7b59na/GoeHVzczkBrN5i4RuvP695/cJgQk=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -22,8 +22,8 @@ github.com/df-mc/goleveldb v1.1.9 h1:ihdosZyy5jkQKrxucTQmN90jq/2lUwQnJZjIYIC/9YU
 github.com/df-mc/goleveldb v1.1.9/go.mod h1:+NHCup03Sci5q84APIA21z3iPZCuk6m6ABtg4nANCSk=
 github.com/df-mc/jsonc v1.0.5 h1:O7oh07kbS5AYY+l2Fji6l4h0iHcdjKbxCtK5VlZlLMU=
 github.com/df-mc/jsonc v1.0.5/go.mod h1:+Q++JuCE9IKiP8v7sWImdf/RjQX0nfXyfX6PdfTTmc4=
-github.com/df-mc/worldupgrader v1.0.21 h1:Qr4/QB8ek7En0vkTuRXYq4FrZM0HHSOXsJOL7Ko4Cjg=
-github.com/df-mc/worldupgrader v1.0.21/go.mod h1:tsSOLTRm9mpG7VHvYpAjjZrkRHWmSbKZAm9bOLNnlDk=
+github.com/df-mc/worldupgrader v1.0.22 h1:Wt1T0imJ9avprhp3vhr21iYLDZ6LqxVqH7LMiqZASWM=
+github.com/df-mc/worldupgrader v1.0.22/go.mod h1:tsSOLTRm9mpG7VHvYpAjjZrkRHWmSbKZAm9bOLNnlDk=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/fsnotify/fsnotify v1.6.0 h1:n+5WquG0fcWoWp6xPWfHdbskMCQaFnG6PfBrh1Ky4HY=
 github.com/fsnotify/fsnotify v1.6.0/go.mod h1:sl3t1tCWJFWoRz9R8WJCbQihKKwmorjAbSClcnxKAGw=
