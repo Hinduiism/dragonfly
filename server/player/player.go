@@ -535,6 +535,21 @@ func (p *Player) MaxHealth() float64 {
 	return p.health.MaxHealth()
 }
 
+// SetHealth restores health above the dead-state epsilon directly, clamped to
+// the player's maximum health. It refuses dead or closed players so it cannot
+// bypass or reverse Dragonfly's death lifecycle.
+func (p *Player) SetHealth(health float64) error {
+	if health <= mgl64.Epsilon || math.IsNaN(health) {
+		return errors.New("player: restored health must be above the dead-state threshold")
+	}
+	if p == nil || p.handle == nil || p.handle.Closed() || p.Dead() {
+		return errors.New("player: cannot restore health for a dead or closed player")
+	}
+	p.health.SetHealth(health)
+	p.session().SendHealth(p.Health(), p.MaxHealth(), p.absorptionHealth)
+	return nil
+}
+
 // SetMaxHealth sets the maximum health of the player. If the current health of the player is higher than the
 // new maximum health, the health is set to the new maximum.
 // SetMaxHealth panics if the max health passed is 0 or lower.
@@ -850,6 +865,13 @@ func (p *Player) Food() int {
 // is negative, the food level will be set to 0. If the level exceeds 20, the food level will be set to 20.
 func (p *Player) SetFood(level int) {
 	p.hunger.SetFood(level)
+	p.sendFood()
+}
+
+// ResetHunger restores food, saturation, exhaustion and the food tick counter
+// to the same values used for a newly created player.
+func (p *Player) ResetHunger() {
+	p.hunger.Reset()
 	p.sendFood()
 }
 

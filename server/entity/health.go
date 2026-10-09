@@ -19,6 +19,12 @@ func (m *HealthManager) Health() float64 {
 	return m.health
 }
 
+// SetHealth sets the current health to health, clamped between zero and the
+// current maximum. It performs no healing or damage event handling.
+func (m *HealthManager) SetHealth(health float64) {
+	m.health = max(min(health, m.max), 0)
+}
+
 // AddHealth adds a given amount of health points to the player. If the health added to the current health
 // exceeds the max, health will be set to the max. If the health is instead negative and results in a health
 // lower than 0, the final health will be 0.
