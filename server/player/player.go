@@ -2275,6 +2275,9 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 			p.tx.AddEntity(orb)
 		}
 	}
+	if h, ok := p.Handler().(BlockBreakDropsHandler); ok {
+		h.HandleBlockBreakDrops(p, pos, b, &drops)
+	}
 	for _, drop := range drops {
 		opts := world.EntitySpawnOpts{Position: pos.Vec3Centre(), Velocity: mgl64.Vec3{rand.Float64()*0.2 - 0.1, 0.2, rand.Float64()*0.2 - 0.1}}
 		p.tx.AddEntity(entity.NewItem(opts, drop))

@@ -156,6 +156,14 @@ type Handler interface {
 	HandleDiagnostics(p *Player, d session.Diagnostics)
 }
 
+// BlockBreakDropsHandler optionally handles the remaining drops of an accepted
+// block break, after block removal and its native break handler. It runs on the
+// player's world owner and cannot cancel the completed break. Drops left in the
+// slice are spawned normally; separately emitted container contents are unchanged.
+type BlockBreakDropsHandler interface {
+	HandleBlockBreakDrops(p *Player, pos cube.Pos, broken world.Block, drops *[]item.Stack)
+}
+
 // NopHandler implements the Handler interface but does not execute any code when an event is called. The
 // default Handler of players is set to NopHandler.
 // Users may embed NopHandler to avoid having to implement each method.
