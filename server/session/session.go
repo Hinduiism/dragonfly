@@ -273,6 +273,16 @@ func (s *Session) SetHandle(handle *world.EntityHandle, skin skin.Skin) {
 	sessions.Add(s)
 }
 
+// ViewerHandle returns the session's stable entity identity. A non-nil handle
+// does not imply the entity is still live. The handle is bound during session
+// initialization and remains the same across world changes.
+func (s *Session) ViewerHandle() *world.EntityHandle {
+	if s == nil {
+		return nil
+	}
+	return s.ent
+}
+
 // SetPlayerListSkin publishes the current immutable skin snapshot used when
 // this session is added back to another player's list.
 func (s *Session) SetPlayerListSkin(value skin.Skin) {
