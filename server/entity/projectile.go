@@ -17,6 +17,12 @@ import (
 	"github.com/go-gl/mathgl/mgl64"
 )
 
+// projectileKnockBacker allows a living entity to select its knockback policy
+// after the projectile's damage and immunity checks have accepted the hit.
+type projectileKnockBacker interface {
+	KnockBackProjectile(source ProjectileDamageSource, velocity mgl64.Vec3, force, height float64)
+}
+
 // ProjectileBehaviourConfig allows the configuration of projectiles. Calling
 // ProjectileBehaviourConfig.New() creates a ProjectileBehaviour using these
 // settings.
@@ -307,7 +313,12 @@ func (lt *ProjectileBehaviour) hitEntity(victim world.Entity, e *Ent, vel mgl64.
 		if !ok {
 			return
 		}
-		l.KnockBack(l.Position().Sub(vel), 0.45+lt.conf.KnockBackForceAddend, 0.3608+lt.conf.KnockBackHeightAddend)
+		force, height := 0.45+lt.conf.KnockBackForceAddend, 0.3608+lt.conf.KnockBackHeightAddend
+		if target, ok := l.(projectileKnockBacker); ok {
+			target.KnockBackProjectile(src, vel, force, height)
+		} else {
+			l.KnockBack(l.Position().Sub(vel), force, height)
+		}
 
 		for _, eff := range lt.conf.Potion.Effects() {
 			if lasting, ok := eff.Type().(effect.LastingType); ok {

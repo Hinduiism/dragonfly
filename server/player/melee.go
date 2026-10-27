@@ -126,6 +126,29 @@ func meleeKnockBackMotion(victim, attacker, previous mgl64.Vec3, force, vertical
 	return motion, true
 }
 
+// KnockBackProjectile applies motion for an already accepted projectile hit.
+// Player-owned snowballs use the direct PvP melee calculation. The direction
+// still follows the projectile's flight; other projectiles retain their normal
+// force, height, and armour resistance handling.
+func (p *Player) KnockBackProjectile(source entity.ProjectileDamageSource, velocity mgl64.Vec3, force, height float64) {
+	if p.Dead() || !p.GameMode().AllowsTakingDamage() {
+		return
+	}
+	origin := p.Position().Sub(velocity)
+	_, playerOwned := source.Owner.(*Player)
+	if playerOwned && source.Projectile != nil && source.Projectile.H().Type() == entity.SnowballType {
+		p.knockBackMelee(origin, directMeleeForce, directMeleeVerticalLimit)
+		return
+	}
+	p.knockBack(origin, force, height)
+}
+
+func (p *Player) knockBackMelee(origin mgl64.Vec3, force, verticalLimit float64) {
+	if motion, ok := meleeKnockBackMotion(p.Position(), origin, p.directMelee.motion, force, verticalLimit); ok {
+		p.SetVelocity(motion)
+	}
+}
+
 func (p *Player) canMeleeInteract(target *Player) bool {
 	if p.Dead() || !p.GameMode().AllowsInteraction() {
 		return false
@@ -260,9 +283,7 @@ func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player,
 
 	p.directMelee.commit(decision, baseDamage)
 	if decision == directMeleeCold {
-		if motion, ok := meleeKnockBackMotion(p.Position(), attacker.Position(), p.directMelee.motion, force, verticalLimit); ok {
-			p.SetVelocity(motion)
-		}
+		p.knockBackMelee(attacker.Position(), force, verticalLimit)
 		if !p.Dead() {
 			for _, viewer := range p.viewers() {
 				viewer.ViewEntityAction(p, entity.HurtAction{})
