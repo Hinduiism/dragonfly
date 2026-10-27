@@ -1747,17 +1747,22 @@ func (p *Player) UseItem() {
 	}
 }
 
-// ReleaseItem makes the Player release the item it is currently using. This is only applicable for items that
-// implement the item.Releasable interface.
+// ReleaseItem stops the Player using the held item. For items implementing item.Releasable, it also performs
+// their release action.
 // If the Player is not currently using any item, ReleaseItem returns immediately.
 // ReleaseItem either aborts the using of the item or finished it, depending on the time that elapsed since
 // the item started being used.
 func (p *Player) ReleaseItem() {
-	if !p.usingItem || !p.canRelease() || !p.GameMode().AllowsInteraction() {
-		p.usingItem = false
+	if !p.usingItem {
 		return
 	}
 	p.usingItem = false
+	// Consumables and cancelled release handlers must also clear the client's using flag, so a rapid
+	// restart is acknowledged as a new use instead of leaving the client in the previous use state.
+	defer p.updateState()
+	if !p.canRelease() || !p.GameMode().AllowsInteraction() {
+		return
+	}
 
 	useCtx, dur := p.useContext(), p.useDuration()
 	i, _ := p.HeldItems()
@@ -1767,7 +1772,6 @@ func (p *Player) ReleaseItem() {
 	}
 	i.Item().(item.Releasable).Release(p, p.tx, useCtx, dur)
 	p.handleUseContext(useCtx)
-	p.updateState()
 }
 
 // canRelease returns whether the player can release the item currently held in the main hand.
