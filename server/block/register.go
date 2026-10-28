@@ -123,6 +123,9 @@ func init() {
 	world.RegisterBlock(SmithingTable{})
 	world.RegisterBlock(SmoothBasalt{})
 	world.RegisterBlock(Snow{})
+	// Fork policy: powder snow is ordinary solid snow in worlds and on the client.
+	world.DefaultBlockRegistry.RegisterBlockAlias(world.BlockState{Name: "minecraft:powder_snow"}, Snow{})
+	registerAll(allSnowLayers())
 	world.RegisterBlock(SoulSand{})
 	world.RegisterBlock(SoulSoil{})
 	world.RegisterBlock(Sponge{Wet: true})
@@ -423,6 +426,7 @@ func init() {
 	world.RegisterItem(Smoker{})
 	world.RegisterItem(SmoothBasalt{})
 	world.RegisterItem(Snow{})
+	world.RegisterItem(SnowLayer{Layers: 1})
 	world.RegisterItem(SoulSand{})
 	world.RegisterItem(SoulSoil{})
 	world.RegisterItem(Sponge{Wet: true})
@@ -592,6 +596,7 @@ func init() {
 	for _, c := range item.OptionalColours() {
 		world.RegisterItem(ShulkerBox{Colour: c})
 	}
+	registerUnimplementedDrops()
 }
 
 func registerAll(blocks []world.Block) {

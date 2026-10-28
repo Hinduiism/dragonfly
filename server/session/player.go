@@ -1058,6 +1058,11 @@ func stackToItem(br world.BlockRegistry, it protocol.ItemStack) item.Stack {
 		b, _ := br.BlockByRuntimeID(uint32(it.BlockRuntimeID))
 		if t, ok = b.(world.Item); !ok {
 			t = block.Air{}
+			if fallback, exists := block.UnimplementedBlockItem(b); exists {
+				if rid, meta, native := world.ItemRuntimeID(fallback); native && rid == it.NetworkID && uint32(meta) == it.MetadataValue {
+					t = fallback
+				}
+			}
 		}
 	}
 	//noinspection SpellCheckingInspection

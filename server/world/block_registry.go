@@ -120,6 +120,8 @@ type BasicBlockRegistry struct {
 	hashes            *intintmap.Map
 	networkhashToRids map[uint32]uint32
 	ridsToNetworkhash []uint32
+	aliases           map[stateHash]stateHash
+	runtimeAliases    map[uint32]uint32
 
 	// stateRuntimeIDs holds a map for looking up the runtime ID of a block by the stateHash it produces.
 	stateRuntimeIDs map[stateHash]uint32
@@ -230,6 +232,8 @@ func (br *BasicBlockRegistry) Clone() *BasicBlockRegistry {
 		finalized:       br.finalized,
 		bitSize:         br.bitSize,
 		airRID:          br.airRID,
+		aliases:         maps.Clone(br.aliases),
+		runtimeAliases:  maps.Clone(br.runtimeAliases),
 	}
 
 	for k, v := range br.blockProperties {
@@ -248,7 +252,7 @@ func (br *BasicBlockRegistry) Clone() *BasicBlockRegistry {
 			if _, hash := b.Hash(); hash == math.MaxUint64 {
 				continue
 			}
-			br2.hashes.Put(int64(br2.BlockHash(b)), int64(rid))
+			br2.hashes.Put(int64(br2.BlockHash(b)), int64(br2.canonicalRuntimeID(uint32(rid))))
 		}
 		br2.networkhashToRids = make(map[uint32]uint32, len(br.networkhashToRids))
 		maps.Copy(br2.networkhashToRids, br.networkhashToRids)
@@ -271,6 +275,12 @@ func NewBlockRegistry() BlockRegistry {
 	br.networkhashToRids = nil
 	br.ridsToNetworkhash = nil
 	br.blockInfos = nil
+	br.runtimeAliases = nil
+	br.stateRuntimeIDs = make(map[stateHash]uint32, len(br.blocks))
+	for rid, b := range br.blocks {
+		name, properties := b.EncodeBlock()
+		br.stateRuntimeIDs[stateHash{name: name, properties: hashProperties(properties)}] = uint32(rid)
+	}
 	return br
 }
 
@@ -419,6 +429,7 @@ func (br *BasicBlockRegistry) Finalize() {
 	if !foundAir {
 		panic("BlockRegistry.Finalize: no minecraft:air block state registered")
 	}
+	br.applyAliases()
 	br.finalized = true
 }
 
@@ -438,7 +449,7 @@ func (br *BasicBlockRegistry) RuntimeIDToState(runtimeID uint32) (name string, p
 	if runtimeID >= uint32(len(br.blocks)) {
 		return "", nil, false
 	}
-	name, properties = br.blocks[runtimeID].EncodeBlock()
+	name, properties = br.blocks[br.canonicalRuntimeID(runtimeID)].EncodeBlock()
 	return name, properties, true
 }
 
@@ -475,7 +486,7 @@ func (br *BasicBlockRegistry) BlockRuntimeID(b Block) uint32 {
 	if _, hash := b.Hash(); hash != math.MaxUint64 {
 		// b is not an unknownBlock.
 		if rid, ok := br.hashes.Get(int64(br.BlockHash(b))); ok {
-			return uint32(rid)
+			return br.canonicalRuntimeID(uint32(rid))
 		}
 		panic(fmt.Sprintf("cannot find block by non-0 hash of block %#v", b))
 	}
@@ -507,7 +518,7 @@ func (br *BasicBlockRegistry) BlockByRuntimeID(rid uint32) (Block, bool) {
 	if rid >= uint32(len(br.blocks)) {
 		return br.Air(), false
 	}
-	return br.blocks[rid], true
+	return br.blocks[br.canonicalRuntimeID(rid)], true
 }
 
 // BlockByName attempts to return a Block by its name and properties. If not found, the bool returned is

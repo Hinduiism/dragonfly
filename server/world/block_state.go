@@ -70,6 +70,28 @@ type unknownBlock struct {
 	data map[string]any
 }
 
+// IsUnimplementedBlock reports whether b is a vanilla state without a block implementation.
+// Implemented but deliberately unbreakable blocks are not included.
+func IsUnimplementedBlock(b Block) bool {
+	_, ok := b.(unknownBlock)
+	return ok
+}
+
+// UnimplementedBlocks returns the default registry's unimplemented states. It may be called during
+// package initialization, before the registry has been finalized.
+func UnimplementedBlocks() []Block {
+	br := DefaultBlockRegistry
+	br.mu.Lock()
+	defer br.mu.Unlock()
+	var blocks []Block
+	for _, b := range br.blocks {
+		if IsUnimplementedBlock(b) {
+			blocks = append(blocks, b)
+		}
+	}
+	return blocks
+}
+
 // EncodeBlock ...
 func (b unknownBlock) EncodeBlock() (string, map[string]any) {
 	return b.Name, b.Properties

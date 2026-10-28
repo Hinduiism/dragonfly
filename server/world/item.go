@@ -63,6 +63,8 @@ var (
 	// items holds a list of all registered items, indexed using the itemHash created when calling
 	// Item.EncodeItem.
 	items = map[itemHash]Item{}
+	// fallbackItems contains inert vanilla items for basic drops. Explicit implementations always win.
+	fallbackItems = map[itemHash]Item{}
 	// customItems holds a list of all registered custom items.
 	customItems []CustomItem
 	// itemRuntimeIDsToNames holds a map to translate item runtime IDs to string IDs.
@@ -96,7 +98,23 @@ func ItemByName(name string, meta int16) (Item, bool) {
 		// Also try obtaining the item with a metadata value of 0, for cases with durability.
 		it, ok = items[itemHash{name: name}]
 	}
+	if !ok {
+		it, ok = fallbackItems[itemHash{name: name, meta: meta}]
+		if !ok {
+			it, ok = fallbackItems[itemHash{name: name}]
+		}
+	}
 	return it, ok
+}
+
+// RegisterItemFallback registers a native item used when no explicit implementation exists.
+// Like RegisterItem, this must run during setup before players or worlds start using items.
+func RegisterItemFallback(i Item) {
+	name, meta := i.EncodeItem()
+	if _, ok := itemNamesToRuntimeIDs[name]; !ok {
+		panic(fmt.Sprintf("fallback item name %v does not have a native runtime ID", name))
+	}
+	fallbackItems[itemHash{name: name, meta: meta}] = i
 }
 
 // ItemRuntimeID attempts to return the runtime ID of the Item passed. False is returned if the Item is not

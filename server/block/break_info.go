@@ -49,11 +49,10 @@ type BreakContext struct {
 // passed, accounting for the status effects and environment described by ctx.
 // See https://minecraft.wiki/w/Breaking#Calculation.
 func BreakDuration(b world.Block, i item.Stack, ctx BreakContext) time.Duration {
-	breakable, ok := b.(Breakable)
+	info, ok := BreakInfoFor(b)
 	if !ok {
 		return math.MaxInt64
 	}
-	info := breakable.BreakInfo()
 	if info.Hardness <= 0 {
 		return 0
 	}
@@ -114,8 +113,8 @@ func BreakDuration(b world.Block, i item.Stack, ctx BreakContext) time.Duration 
 // mined in a single tick with any item and without consuming tool durability. This is distinct from a
 // block that only breaks within one tick because of a high-speed tool or status effects.
 func BreaksInstantly(b world.Block) bool {
-	breakable, ok := b.(Breakable)
-	return ok && breakable.BreakInfo().Hardness <= 0
+	info, ok := BreakInfoFor(b)
+	return ok && info.Hardness <= 0
 }
 
 // BreakInfo is a struct returned by every block. It holds information on block breaking related data, such as

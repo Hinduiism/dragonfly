@@ -2245,7 +2245,8 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 		p.resendNearbyBlocks(pos)
 		return
 	}
-	if _, breakable := b.(block.Breakable); !breakable && !p.GameMode().CreativeInventory() {
+	info, breakable := block.BreakInfoFor(b)
+	if !breakable && !p.GameMode().CreativeInventory() {
 		p.resendNearbyBlocks(pos)
 		return
 	}
@@ -2253,9 +2254,9 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 	drops := p.drops(held, b)
 
 	xp := 0
-	if breakable, ok := b.(block.Breakable); ok && !p.GameMode().CreativeInventory() {
+	if breakable && !p.GameMode().CreativeInventory() {
 		if _, hasSilkTouch := held.Enchantment(enchantment.SilkTouch); !hasSilkTouch {
-			xp = breakable.BreakInfo().XPDrops.RandomValue()
+			xp = info.XPDrops.RandomValue()
 		}
 	}
 
@@ -2270,8 +2271,8 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 	p.tx.SetBlock(pos, nil, nil)
 	p.tx.AddParticle(pos.Vec3Centre(), particle.BlockBreak{Block: b})
 
-	if breakable, ok := b.(block.Breakable); ok {
-		info := breakable.BreakInfo()
+	if breakable {
+		info, _ := block.BreakInfoFor(b)
 		if info.BreakHandler != nil {
 			info.BreakHandler(pos, p.tx, p)
 		}
@@ -2305,9 +2306,9 @@ func (p *Player) drops(held item.Stack, b world.Block) []item.Stack {
 		t = item.ToolNone{}
 	}
 	var drops []item.Stack
-	if breakable, ok := b.(block.Breakable); ok && !p.GameMode().CreativeInventory() {
-		if breakable.BreakInfo().Harvestable(t) {
-			drops = breakable.BreakInfo().Drops(t, held.Enchantments())
+	if info, ok := block.BreakInfoFor(b); ok && !p.GameMode().CreativeInventory() {
+		if info.Harvestable(t) {
+			drops = info.Drops(t, held.Enchantments())
 		}
 	} else if it, ok := b.(world.Item); ok && !p.GameMode().CreativeInventory() {
 		drops = []item.Stack{item.NewStack(it, 1)}
