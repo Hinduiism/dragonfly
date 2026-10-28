@@ -2,14 +2,14 @@ module github.com/df-mc/dragonfly
 
 go 1.26.0
 
-replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261027003904-2b2f2d8d0b12
+replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261028040211-a5b0701d8a48
 
 replace github.com/sandertv/go-raknet => github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/df-mc/go-nethernet v1.0.24
+	github.com/df-mc/go-nethernet v1.0.26
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/df-mc/worldupgrader v1.0.22
 	github.com/go-gl/mathgl v1.2.0
@@ -17,7 +17,7 @@ require (
 	github.com/pelletier/go-toml v1.9.5
 	github.com/pion/ice/v4 v4.4.4
 	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f
-	github.com/sandertv/gophertunnel v1.62.0
+	github.com/sandertv/gophertunnel v1.63.0
 	github.com/segmentio/fasthash v1.0.3
 	golang.org/x/exp v0.0.0-20250103183323-7d7fa50e5329
 	golang.org/x/mod v0.32.0

@@ -1,7 +1,7 @@
 github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84 h1:bsNoCci73q3x5yPp4zLwSdeeppvYyd3hu2nmFrNMxMQ=
 github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84/go.mod h1:m8i0H2zIDryMgl0RLo/M/1BML0Oc6EpqgorBP9LgmKM=
-github.com/ValorNetworks/gophertunnel v0.0.0-20261027003904-2b2f2d8d0b12 h1:wAkHkCEG+KGJ4Fqpp5x4jqu/CCbaf3gDzzodIzLgDW8=
-github.com/ValorNetworks/gophertunnel v0.0.0-20261027003904-2b2f2d8d0b12/go.mod h1:dA30doz2nzxjiXjYqiIS0JtsU6dBnntlZd2Ok4S9Ntg=
+github.com/ValorNetworks/gophertunnel v0.0.0-20261028040211-a5b0701d8a48 h1:RzkHPRRFjA9rspdEVfj2EPzxbWd2M6A52DwbCPMRDXo=
+github.com/ValorNetworks/gophertunnel v0.0.0-20261028040211-a5b0701d8a48/go.mod h1:E2c3C7Z1+taMqeAkxbj9ksyABmGALLkp8Ck6GkcMJkE=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -10,8 +10,8 @@ github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-oidc/v3 v3.17.0 h1:hWBGaQfbi0iVviX4ibC7bk8OKT5qNr4klBaCHVNvehc=
 github.com/coreos/go-oidc/v3 v3.17.0/go.mod h1:wqPbKFrVnE90vty060SB40FCJ8fTHTxSwyXJqZH+sI8=
-github.com/df-mc/go-nethernet v1.0.24 h1:6jL+e7MPywyCKUPCncUde2nMf8id5KdcahOSzS9PX4Y=
-github.com/df-mc/go-nethernet v1.0.24/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
+github.com/df-mc/go-nethernet v1.0.26 h1:wO0PVPlBTEJI75YdA0eQ8DdDgeSYO6blZdnyYZrGg54=
+github.com/df-mc/go-nethernet v1.0.26/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
 github.com/df-mc/go-playfab/v2 v2.0.2 h1:JqOsrpe0nt6Ni4V2JrdmOAhbBgTm7LBw1ppGXlmknhs=
 github.com/df-mc/go-playfab/v2 v2.0.2/go.mod h1:CS3FV3tJlohvGQiX0IJiaYKOVNfy0p778B84oEVyxlw=
 github.com/df-mc/go-xsapi/v2 v2.0.3 h1:fQLw4k15OinFhagWjbSj0BwQXeDUmY8a1J8yquEod3w=

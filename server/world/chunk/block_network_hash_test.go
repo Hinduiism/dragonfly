@@ -18,6 +18,10 @@ const (
 
 type networkHashTestRegistry struct{}
 
+func (networkHashTestRegistry) DefaultProperties(string) (map[string]any, bool) {
+	return nil, false
+}
+
 func (networkHashTestRegistry) BlockCount() int { return 128 }
 func (networkHashTestRegistry) AirRuntimeID() uint32 {
 	return testAirRuntimeID
