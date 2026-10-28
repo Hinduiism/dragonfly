@@ -293,8 +293,8 @@ func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player,
 	return playerMeleeHurtResult{decision: decision, accepted: true}
 }
 
-// observeDamageForMelee keeps the victim-owned direct-melee gate shared across accepted damage sources. The source
-// keeps its existing Dragonfly damage and motion behaviour.
+// observeDamageForMelee shares the victim-owned direct-melee gate with accepted
+// non-projectile damage. Projectile hits never consume the melee hit window.
 func (p *Player) observeDamageForMelee(baseDamage float64, policyAccepted bool) {
 	if !policyAccepted {
 		return

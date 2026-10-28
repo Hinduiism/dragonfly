@@ -90,6 +90,9 @@ type playerData struct {
 	lastDamage  float64
 	immuneUntil time.Time
 
+	projectileLastDamage  float64
+	projectileImmuneUntil time.Time
+
 	directMelee directMeleeState
 
 	deathPos       *mgl64.Vec3
@@ -653,7 +656,9 @@ func (p *Player) blocksUnder() (low, high cube.Pos) {
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
 	result := p.hurt(dmg, src, hurtOptions{})
-	p.observeDamageForMelee(dmg, result.policyAccepted)
+	if _, projectile := src.(entity.ProjectileDamageSource); !projectile {
+		p.observeDamageForMelee(dmg, result.policyAccepted)
+	}
 	return result.damage, result.vulnerable
 }
 
@@ -676,10 +681,11 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	damageLeft := totalDamage
 
 	ignoreImmunity := ignoresAttackImmunity(src)
-	immune := !ignoreImmunity && time.Now().Before(p.immuneUntil)
+	immuneUntil, lastDamage := p.attackImmunity(src)
+	immune := !ignoreImmunity && time.Now().Before(immuneUntil)
 	immunitySuppressed := false
 	if immune {
-		if damageLeft -= p.lastDamage; damageLeft <= 0 {
+		if damageLeft -= lastDamage; damageLeft <= 0 {
 			if !opts.continueThroughImmunity {
 				return hurtResult{}
 			}
@@ -696,7 +702,7 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 		return result
 	}
 	if !ignoreImmunity {
-		p.setAttackImmunity(immunity, totalDamage)
+		p.setAttackImmunity(immunity, totalDamage, src)
 	}
 
 	if a := p.Absorption(); a > 0 && !ignoresAbsorption(src) {
@@ -849,8 +855,22 @@ func (p *Player) knockBack(src mgl64.Vec3, force, height float64) {
 	p.SetVelocity(velocity.Mul(1 - p.Armour().KnockBackResistance()))
 }
 
-// setAttackImmunity sets the duration the player is immune to entity attacks.
-func (p *Player) setAttackImmunity(d time.Duration, dmg float64) {
+// attackImmunity keeps projectile damage separate from melee and other damage.
+// Each group retains its own cooldown and stronger-hit damage difference.
+func (p *Player) attackImmunity(src world.DamageSource) (time.Time, float64) {
+	if _, projectile := src.(entity.ProjectileDamageSource); projectile {
+		return p.projectileImmuneUntil, p.projectileLastDamage
+	}
+	return p.immuneUntil, p.lastDamage
+}
+
+// setAttackImmunity updates only the damage source's immunity group.
+func (p *Player) setAttackImmunity(d time.Duration, dmg float64, src world.DamageSource) {
+	if _, projectile := src.(entity.ProjectileDamageSource); projectile {
+		p.projectileImmuneUntil = time.Now().Add(d)
+		p.projectileLastDamage = dmg
+		return
+	}
 	p.immuneUntil = time.Now().Add(d)
 	p.lastDamage = dmg
 }

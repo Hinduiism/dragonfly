@@ -36,7 +36,7 @@ func TestSnowballHitUsesPlayerMeleeKnockBack(t *testing.T) {
 }
 
 func TestRejectedSnowballHitDoesNotApplyKnockBack(t *testing.T) {
-	for _, reason := range []string{"cancelled damage", "damage immunity"} {
+	for _, reason := range []string{"cancelled damage", "projectile immunity"} {
 		t.Run(reason, func(t *testing.T) {
 			withProjectileKnockBackPlayers(t, func(tx *world.Tx, owner, victim *Player) {
 				previous := mgl64.Vec3{0.2, -0.2, 0.4}
@@ -44,8 +44,8 @@ func TestRejectedSnowballHitDoesNotApplyKnockBack(t *testing.T) {
 				if reason == "cancelled damage" {
 					victim.Handle(cancelSnowballDamage{})
 				} else {
-					victim.immuneUntil = time.Now().Add(time.Minute)
-					victim.lastDamage = 1
+					victim.projectileImmuneUntil = time.Now().Add(time.Minute)
+					victim.projectileLastDamage = 1
 				}
 				projectile := tx.AddEntity(entity.NewSnowball(projectileKnockBackOpts(), owner)).(*entity.Ent)
 				projectile.Behaviour().(*entity.ProjectileBehaviour).Tick(projectile, tx)
