@@ -162,7 +162,7 @@ func (uc UserConfig) netherNetListenerFunc(conf Config) (Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse UDP port range: %w", err)
 	}
-	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r, PublicIP: nn.PublicIP, TLSCertFile: nn.TLSCertFile, TLSKeyFile: nn.TLSKeyFile}.Listener(conf)
+	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r, PublicIP: nn.PublicIP, TLSCertFile: nn.TLSCertFile, TLSKeyFile: nn.TLSKeyFile, AllowHTTP: nn.AllowHTTP}.Listener(conf)
 }
 
 // ListenNetwork returns a Listener accepting connections for conf over any
@@ -210,6 +210,10 @@ type NetherNetConfig struct {
 	// one combined PEM path for both fields to rotate certificate and key atomically.
 	TLSCertFile string
 	TLSKeyFile  string
+	// AllowHTTP also accepts plaintext HTTP on Address when TLS is configured.
+	// This supports raw-IP clients using NetherNet's Trust On First Use flow.
+	// The default is HTTPS only when certificate files are configured.
+	AllowHTTP bool
 }
 
 func netherNetTLSConfig(certFile, keyFile string) (*tls.Config, error) {
@@ -381,18 +385,18 @@ func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 		_ = deferred.Close()
 		return nil, fmt.Errorf("listen NetherNet HTTP: %w", err)
 	}
-	if tlsConfig != nil {
-		tcp = tls.NewListener(tcp, tlsConfig)
-	}
-	// Once httpServer.Serve takes ownership of tcp below, closing httpServer is
-	// what closes tcp: closing tcp itself as well would race Serve releasing it
-	// and report a spurious net.ErrClosed on an otherwise clean shutdown.
-	var serving bool
 	deferred.deferClose(func() error {
-		if serving {
-			return httpServer.Close()
+		serverErr := httpServer.Close()
+		if errors.Is(serverErr, net.ErrClosed) {
+			serverErr = nil
 		}
-		return tcp.Close()
+		// Also close the root socket: in mixed mode it belongs to the mux, and
+		// Serve may not yet have registered its listeners during startup.
+		listenerErr := tcp.Close()
+		if errors.Is(listenerErr, net.ErrClosed) {
+			listenerErr = nil
+		}
+		return errors.Join(serverErr, listenerErr)
 	})
 
 	handler := endpoint.HandlerConfig{Logger: httpLog, Credentials: nc.Credentials}.New()
@@ -407,13 +411,7 @@ func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 	}
 
 	httpServer.Handler = logHTTPRequests(httpLog, handler)
-	serving = true
-	go func() {
-		err := httpServer.Serve(tcp)
-		if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
-			conf.Log.Error("NetherNet HTTP listener closed unexpectedly: " + err.Error())
-		}
-	}()
+	serveNetherNetHTTP(httpServer, tcp, tlsConfig, nc.AllowHTTP, httpLog)
 
 	conf.Log.Info("NetherNet listener running.", "addr", tcp.Addr())
 	return listener{Listener: l, close: deferred.Close}, nil

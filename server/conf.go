@@ -271,6 +271,9 @@ type UserConfig struct {
 			// They may name one combined PEM file, replaced atomically on renewal.
 			TLSCertFile string
 			TLSKeyFile  string
+			// AllowHTTP also accepts plaintext HTTP on the HTTPS signaling port,
+			// for raw-IP clients using Trust On First Use. Defaults to false.
+			AllowHTTP bool
 		}
 	}
 	Server struct {
