@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -161,7 +162,7 @@ func (uc UserConfig) netherNetListenerFunc(conf Config) (Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse UDP port range: %w", err)
 	}
-	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r, PublicIP: nn.PublicIP}.Listener(conf)
+	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r, PublicIP: nn.PublicIP, TLSCertFile: nn.TLSCertFile, TLSKeyFile: nn.TLSKeyFile}.Listener(conf)
 }
 
 // ListenNetwork returns a Listener accepting connections for conf over any
@@ -176,11 +177,10 @@ func ListenNetwork(conf Config, network minecraft.Network, address string) (List
 }
 
 // NetherNetConfig may be used to create a NetherNet Listener for a Server, accepting
-// connections negotiated over a plaintext HTTP signaling endpoint. Its Listener method
+// connections negotiated over an HTTP or HTTPS signaling endpoint. Its Listener method
 // matches the Config.Listeners function signature.
 type NetherNetConfig struct {
-	// Address is the TCP address the HTTP signaling endpoint is served on. HTTPS should
-	// be terminated by a reverse proxy.
+	// Address is the TCP address the HTTP or HTTPS signaling endpoint is served on.
 	Address string
 	// Key identifies the listener to players connecting over plain HTTP. If nil, a
 	// temporary key is generated, causing clients using Trust On First Use (TOFU) to
@@ -190,9 +190,9 @@ type NetherNetConfig struct {
 	// over plain HTTP. If empty, "self" is used.
 	Domain string
 	// HTTPServer optionally configures the server used to serve the signaling endpoint.
-	// Its Handler is set by Listener; TLSConfig is ignored because the endpoint is served
-	// as plaintext HTTP with HTTPS terminated by a reverse proxy. All other fields may be
-	// set freely. If nil, a server with 5s/10s/30s read-header/read/idle timeouts is used.
+	// Its Handler is set by Listener; TLS is configured through TLSCertFile/TLSKeyFile.
+	// All other fields may be set freely. If nil, a server with 5s/10s/30s
+	// read-header/read/idle timeouts is used.
 	HTTPServer *http.Server
 	// Credentials optionally supplies ICE (STUN/TURN) servers to the signaling handler.
 	// It is required for servers behind NAT or a tunnel, where the reachable game path
@@ -205,6 +205,47 @@ type NetherNetConfig struct {
 	UDPPorts PortRange
 	// PublicIP replaces private host candidates when the server is behind one-to-one NAT.
 	PublicIP string
+	// TLSCertFile and TLSKeyFile enable HTTPS with a trusted PEM certificate and key.
+	// New handshakes reload the files so renewal needs no gameplay restart. Use
+	// one combined PEM path for both fields to rotate certificate and key atomically.
+	TLSCertFile string
+	TLSKeyFile  string
+}
+
+func netherNetTLSConfig(certFile, keyFile string) (*tls.Config, error) {
+	if certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	if certFile == "" || keyFile == "" {
+		return nil, errors.New("NetherNet HTTPS requires both TLSCertFile and TLSKeyFile")
+	}
+	load := func() (*tls.Certificate, error) {
+		certPEM, err := os.ReadFile(certFile)
+		if err != nil {
+			return nil, fmt.Errorf("read NetherNet TLS certificate: %w", err)
+		}
+		keyPEM := certPEM
+		if certFile != keyFile {
+			keyPEM, err = os.ReadFile(keyFile)
+			if err != nil {
+				return nil, fmt.Errorf("read NetherNet TLS key: %w", err)
+			}
+		}
+		cert, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			return nil, fmt.Errorf("load NetherNet TLS certificate: %w", err)
+		}
+		return &cert, nil
+	}
+	if _, err := load(); err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return load()
+		},
+	}, nil
 }
 
 // parsePortRange parses "port" or "min-max" as a PortRange. An empty string
@@ -269,9 +310,13 @@ func (c *closeFuncs) Close() (err error) {
 	return err
 }
 
-// Listener returns a Listener accepting NetherNet connections signaled over HTTP.
+// Listener returns a Listener accepting NetherNet connections signaled over HTTP or HTTPS.
 func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 	log := conf.Log.With("net origin", "nethernet")
+	tlsConfig, err := netherNetTLSConfig(nc.TLSCertFile, nc.TLSKeyFile)
+	if err != nil {
+		return nil, err
+	}
 	if nc.Key == nil {
 		var err error
 		if nc.Key, err = netherNetKey("", log); err != nil {
@@ -335,6 +380,9 @@ func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 	if err != nil {
 		_ = deferred.Close()
 		return nil, fmt.Errorf("listen NetherNet HTTP: %w", err)
+	}
+	if tlsConfig != nil {
+		tcp = tls.NewListener(tcp, tlsConfig)
 	}
 	// Once httpServer.Serve takes ownership of tcp below, closing httpServer is
 	// what closes tcp: closing tcp itself as well would race Serve releasing it

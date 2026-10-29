@@ -249,9 +249,8 @@ type UserConfig struct {
 		Transport []string
 		// NetherNet holds settings for the NetherNet HTTP signaling listener.
 		NetherNet struct {
-			// Address is the TCP address used for NetherNet HTTP signaling. If
-			// empty, Network.Address is used. The listener serves plaintext HTTP;
-			// HTTPS should be terminated by a reverse proxy.
+			// Address is the TCP address used for NetherNet signaling. If empty,
+			// Network.Address is used. TLSCertFile/TLSKeyFile enable HTTPS.
 			Address string
 			// KeyFile is the path to the PEM file containing the P-384 ECDSA
 			// private key used to identify this listener when clients connect
@@ -268,6 +267,10 @@ type UserConfig struct {
 			UDPPorts string
 			// PublicIP is the reachable IP advertised for a server behind one-to-one NAT.
 			PublicIP string
+			// TLSCertFile and TLSKeyFile enable HTTPS signaling when both are set.
+			// They may name one combined PEM file, replaced atomically on renewal.
+			TLSCertFile string
+			TLSKeyFile  string
 		}
 	}
 	Server struct {
