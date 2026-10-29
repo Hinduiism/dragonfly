@@ -266,6 +266,8 @@ type UserConfig struct {
 			// connections use. A single port is shared by all connections. If
 			// empty, the operating system picks the ports.
 			UDPPorts string
+			// PublicIP is the reachable IP advertised for a server behind one-to-one NAT.
+			PublicIP string
 		}
 	}
 	Server struct {

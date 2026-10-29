@@ -161,7 +161,7 @@ func (uc UserConfig) netherNetListenerFunc(conf Config) (Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse UDP port range: %w", err)
 	}
-	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r}.Listener(conf)
+	return NetherNetConfig{Address: address, Key: key, Domain: nn.Domain, UDPPorts: r, PublicIP: nn.PublicIP}.Listener(conf)
 }
 
 // ListenNetwork returns a Listener accepting connections for conf over any
@@ -203,6 +203,8 @@ type NetherNetConfig struct {
 	// UDPPorts is the UDP port range used for player connections. See PortRange
 	// for how single ports and zero bounds behave.
 	UDPPorts PortRange
+	// PublicIP replaces private host candidates when the server is behind one-to-one NAT.
+	PublicIP string
 }
 
 // parsePortRange parses "port" or "min-max" as a PortRange. An empty string
@@ -282,8 +284,22 @@ func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 
 	var deferred closeFuncs
 	settingEngine := webrtc.SettingEngine{}
+	if nc.PublicIP != "" {
+		ip := net.ParseIP(nc.PublicIP)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid NetherNet public IP %q", nc.PublicIP)
+		}
+		settingEngine.SetNAT1To1IPs([]string{ip.String()}, webrtc.ICECandidateTypeHost)
+		if ip.To4() != nil {
+			settingEngine.SetNetworkTypes([]webrtc.NetworkType{webrtc.NetworkTypeUDP4})
+		}
+	}
 	if ports := nc.UDPPorts; ports.Min != 0 && ports.Min == ports.Max {
-		mux, err := ice.NewMultiUDPMuxFromPort(int(ports.Min))
+		var muxOptions []ice.UDPMuxFromPortOption
+		if ip := net.ParseIP(nc.PublicIP); ip != nil && ip.To4() != nil {
+			muxOptions = append(muxOptions, ice.UDPMuxFromPortWithNetworks(ice.NetworkTypeUDP4))
+		}
+		mux, err := ice.NewMultiUDPMuxFromPort(int(ports.Min), muxOptions...)
 		if err != nil {
 			return nil, fmt.Errorf("allocate UDP mux: %w", err)
 		}
@@ -296,6 +312,10 @@ func (nc NetherNetConfig) Listener(conf Config) (Listener, error) {
 		API:            webrtc.NewAPI(webrtc.WithSettingEngine(settingEngine)),
 		Log:            log,
 		AllowAnonymous: conf.AuthDisabled,
+		ConnContext: func(parent context.Context, _ *nethernet.Conn) (context.Context, context.CancelFunc) {
+			// ICE, DTLS, SCTP and data channels share a bounded setup window.
+			return context.WithTimeout(parent, 30*time.Second)
+		},
 		IssueServerIdentity: func(ctx context.Context) (*nethernet.Identity, error) {
 			return nethernet.ServerIdentity(nc.Key, nc.Domain)
 		},
