@@ -32,7 +32,7 @@ const (
 
 func spectating(s Sleeper) bool {
 	g, ok := s.(interface{ GameMode() GameMode })
-	return ok && g.GameMode() == GameModeSpectator
+	return ok && !g.GameMode().HasCollision()
 }
 
 // tryAdvanceDay attempts to advance the day of the world, by first ensuring that all sleepers are sleeping, and then

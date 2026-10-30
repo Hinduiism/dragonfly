@@ -1061,7 +1061,7 @@ func (p *Player) kill(src world.DamageSource) {
 	p.StopSprinting()
 
 	pos := p.Position()
-	if !keepInv && p.GameMode() != world.GameModeSpectator {
+	if !keepInv && p.GameMode().HasCollision() {
 		p.dropItems()
 	}
 	for _, e := range p.Effects() {
@@ -1753,7 +1753,7 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
 func (p *Player) UseItem() {
-	if p.GameMode() == world.GameModeSpectator {
+	if !p.GameMode().AllowsInteraction() {
 		return
 	}
 	i, _ := p.HeldItems()
