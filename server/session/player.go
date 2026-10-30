@@ -590,6 +590,15 @@ func (s *Session) SendAbilities(c Controllable) {
 	}}
 	if mode == world.GameModeSpectator {
 		pk.AbilityData.Layers = append([]protocol.AbilityLayer{spectatorAbilityLayer}, pk.AbilityData.Layers...)
+	} else if !mode.HasCollision() {
+		// Bedrock can stop flight when a non-native observer enters a block.
+		// Override only flight here: The base layer still owns interaction,
+		// no-clip and permissions, and the local game type keeps its hotbar.
+		pk.AbilityData.Layers = append(pk.AbilityData.Layers, protocol.AbilityLayer{
+			Type:      protocol.AbilityLayerTypeSpectator,
+			Abilities: protocol.AbilityFlying,
+			Values:    protocol.AbilityFlying,
+		})
 	}
 	s.writePacket(pk)
 }

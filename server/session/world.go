@@ -169,6 +169,11 @@ func (s *Session) ViewEntity(e world.Entity) {
 
 // ViewEntityGameMode ...
 func (s *Session) ViewEntityGameMode(e world.Entity) {
+	if e.H() == s.ent {
+		// SendGameMode already sends the local presentation followed by its
+		// abilities. A second game-type update can reset those abilities.
+		return
+	}
 	if s.entityHidden(e) {
 		return
 	}
@@ -176,14 +181,8 @@ func (s *Session) ViewEntityGameMode(e world.Entity) {
 	if !ok {
 		return
 	}
-	gameType := gameTypeFromMode(c.GameMode())
-	if e.H() == s.ent {
-		// The owning player also receives viewer broadcasts. Preserve the same
-		// local presentation selected by SendGameMode for this connection.
-		gameType = clientGameTypeFromMode(c.GameMode())
-	}
 	s.writePacket(&packet.UpdatePlayerGameType{
-		GameType:       gameType,
+		GameType:       gameTypeFromMode(c.GameMode()),
 		PlayerUniqueID: int64(s.entityRuntimeID(c)),
 	})
 }
