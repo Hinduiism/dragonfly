@@ -176,8 +176,14 @@ func (s *Session) ViewEntityGameMode(e world.Entity) {
 	if !ok {
 		return
 	}
+	gameType := gameTypeFromMode(c.GameMode())
+	if e.H() == s.ent {
+		// The owning player also receives viewer broadcasts. Preserve the same
+		// local presentation selected by SendGameMode for this connection.
+		gameType = clientGameTypeFromMode(c.GameMode())
+	}
 	s.writePacket(&packet.UpdatePlayerGameType{
-		GameType:       gameTypeFromMode(c.GameMode()),
+		GameType:       gameType,
 		PlayerUniqueID: int64(s.entityRuntimeID(c)),
 	})
 }
