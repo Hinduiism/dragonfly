@@ -1,11 +1,74 @@
 package session
 
 import (
+	"slices"
 	"testing"
 
+	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
+
+func TestPlayerAuthInputJumpPrecedesMovement(t *testing.T) {
+	flags := protocol.NewInputFlags(packet.InputFlagCount)
+	flags.Set(packet.InputFlagStartJumping)
+	flags.Set(packet.InputFlagMissedSwing)
+	c := &movementInputControllable{position: mgl64.Vec3{0, 64, 0}}
+	pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0, 66.04, 0}, InputData: flags}
+	if err := (PlayerAuthInputHandler{}).Handle(pk, &Session{}, nil, c); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"jump", "swing", "move"}; !slices.Equal(c.actions, want) {
+		t.Fatalf("input order = %v, want %v", c.actions, want)
+	}
+	if c.jumpPosition != (mgl64.Vec3{0, 64, 0}) {
+		t.Fatalf("jump position = %v, want the position before movement", c.jumpPosition)
+	}
+	if want := (mgl64.Vec3{0, 64.42, 0}); !c.position.ApproxEqual(want) {
+		t.Fatalf("final position = %v, want %v", c.position, want)
+	}
+}
+
+func TestPlayerAuthInputIgnoresJumpBeforeTeleportAcknowledgement(t *testing.T) {
+	flags := protocol.NewInputFlags(packet.InputFlagCount)
+	flags.Set(packet.InputFlagStartJumping)
+	c := &movementInputControllable{position: mgl64.Vec3{0, 64, 0}}
+	s := &Session{}
+	expected := mgl64.Vec3{100, 64, 0}
+	s.teleportPos.Store(&expected)
+	pk := &packet.PlayerAuthInput{Position: mgl32.Vec3{0, 66.04, 0}, InputData: flags}
+	if err := (PlayerAuthInputHandler{}).Handle(pk, s, nil, c); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.actions) != 0 {
+		t.Fatalf("stale pre-teleport input applied actions: %v", c.actions)
+	}
+	if s.teleportPos.Load() == nil {
+		t.Fatal("stale movement acknowledged the pending teleport")
+	}
+}
+
+type movementInputControllable struct {
+	Controllable
+	position     mgl64.Vec3
+	jumpPosition mgl64.Vec3
+	actions      []string
+}
+
+func (c *movementInputControllable) Position() mgl64.Vec3  { return c.position }
+func (*movementInputControllable) Rotation() cube.Rotation { return cube.Rotation{} }
+func (*movementInputControllable) Sneaking() bool          { return false }
+func (c *movementInputControllable) Jump() {
+	c.actions = append(c.actions, "jump")
+	c.jumpPosition = c.position
+}
+func (c *movementInputControllable) PunchAir() { c.actions = append(c.actions, "swing") }
+func (c *movementInputControllable) Move(delta mgl64.Vec3, _, _ float64) {
+	c.actions = append(c.actions, "move")
+	c.position = c.position.Add(delta)
+}
 
 func TestPlayerAuthInputFeetPositionSubtractsInFloat64(t *testing.T) {
 	got := playerAuthInputFeetPosition(mgl32.Vec3{2, 1.00325, -3})

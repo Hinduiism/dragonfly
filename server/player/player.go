@@ -2502,9 +2502,14 @@ func (p *Player) teleport(pos mgl64.Vec3) {
 // position of the player.
 // Move also rotates the player, adding deltaYaw and deltaPitch to the respective values.
 func (p *Player) Move(deltaPos mgl64.Vec3, deltaYaw, deltaPitch float64) {
-	if p.Dead() || (deltaPos.ApproxEqual(mgl64.Vec3{}) && mgl64.FloatEqual(deltaYaw, 0) && mgl64.FloatEqual(deltaPitch, 0)) {
+	if p.Dead() {
 		p.onGround = true
 		p.updateFallState(deltaPos.Y())
+		return
+	}
+	if deltaPos.ApproxEqual(mgl64.Vec3{}) && mgl64.FloatEqual(deltaYaw, 0) && mgl64.FloatEqual(deltaPitch, 0) {
+		// Unchanged input does not establish a landing. Preserve the last ground
+		// and fall state until movement updates them.
 		return
 	}
 	if p.immobile {

@@ -24,7 +24,7 @@ func (h PlayerAuthInputHandler) Handle(p packet.Packet, s *Session, tx *world.Tx
 	return h.handleActions(pk, s, tx, c)
 }
 
-// handleMovement handles the movement part of the packet.PlayerAuthInput.
+// handleMovement handles movement input flags and the position in a packet.PlayerAuthInput.
 func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Session, c Controllable) error {
 	yaw, pitch := c.Rotation().Elem()
 	pos := c.Position()
@@ -59,6 +59,10 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 		}
 	}
 
+	// Jumping uses the ground state from before this movement, as in PocketMine.
+	// Validate pending teleports first, but leave item and block interactions
+	// until after the new position has been applied.
+	h.handleInputFlags(pk.InputData, s, c)
 	s.moving = true
 	c.Move(deltaPos, deltaYaw, deltaPitch)
 	return nil
@@ -66,8 +70,6 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 
 // handleActions handles the actions with the world that are present in the PlayerAuthInput packet.
 func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Session, tx *world.Tx, c Controllable) error {
-	h.handleInputFlags(pk.InputData, s, c)
-
 	if pk.InputData.Load(packet.InputFlagPerformItemInteraction) {
 		data, ok := pk.ItemInteractionData.Value()
 		if !ok {
