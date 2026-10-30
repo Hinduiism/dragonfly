@@ -7,6 +7,20 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
+type spectatorControlsMode struct{ world.GameMode }
+
+func (spectatorControlsMode) ClientGameMode() world.GameMode { return world.GameModeSurvival }
+
+func TestSpectatorControlsOnlyChangeOwnClientPresentation(t *testing.T) {
+	mode := spectatorControlsMode{world.GameModeSpectator}
+	if got := clientGameTypeFromMode(mode); got != packet.GameTypeSurvival {
+		t.Fatalf("own client mode = %d, want hotbar-compatible survival", got)
+	}
+	if got := gameTypeFromMode(mode); got != packet.GameTypeSpectator {
+		t.Fatalf("viewer mode = %d, want spectator", got)
+	}
+}
+
 func TestGameTypeFromMode(t *testing.T) {
 	tests := []struct {
 		name string

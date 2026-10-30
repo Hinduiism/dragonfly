@@ -170,7 +170,13 @@ func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.InputFlags, s *S
 		}
 	}
 	if flags.Load(packet.InputFlagStopFlying) {
-		c.StopFlying()
+		if !c.GameMode().HasCollision() {
+			// No-clip observers fly permanently, including server-defined modes
+			// with a hotbar whose client would otherwise allow flight toggling.
+			s.SendAbilities(c)
+		} else {
+			c.StopFlying()
+		}
 	}
 }
 

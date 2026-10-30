@@ -608,7 +608,7 @@ func (p *Player) updateFallState(distanceThisTick float64) {
 
 // fall is called when a falling entity hits the ground.
 func (p *Player) fall(distance float64) {
-	if pos, lander, ok := p.landedOn(); ok {
+	if pos, lander, ok := p.landedOn(); ok && p.GameMode().HasCollision() {
 		lander.EntityLand(pos, p.tx, p, &distance)
 	}
 	dmg := distance - 3
@@ -1061,7 +1061,7 @@ func (p *Player) kill(src world.DamageSource) {
 	p.StopSprinting()
 
 	pos := p.Position()
-	if !keepInv {
+	if !keepInv && p.GameMode() != world.GameModeSpectator {
 		p.dropItems()
 	}
 	for _, e := range p.Effects() {
@@ -1527,7 +1527,7 @@ func (p *Player) SendSleepingIndicator(sleeping, max int) {
 
 // SetInvisible sets the player invisible, so that other players will not be able to see it.
 func (p *Player) SetInvisible() {
-	if p.Invisible() {
+	if p.invisible {
 		return
 	}
 	p.invisible = true
@@ -1535,9 +1535,9 @@ func (p *Player) SetInvisible() {
 }
 
 // SetVisible sets the player visible again, so that other players can see it again. If the player was already
-// visible, or if the player is in spectator mode, nothing happens.
+// visible, nothing happens. A game mode that requires invisibility stays hidden.
 func (p *Player) SetVisible() {
-	if _, ok := p.Effect(effect.Invisibility); ok || !p.GameMode().Visible() || !p.invisible {
+	if _, ok := p.Effect(effect.Invisibility); ok || !p.invisible {
 		return
 	}
 	p.invisible = false
@@ -1546,7 +1546,11 @@ func (p *Player) SetVisible() {
 
 // Invisible checks if the Player is currently invisible.
 func (p *Player) Invisible() bool {
-	return p.invisible
+	// Native spectator visibility belongs to its client game type. Custom
+	// invisible modes additionally need metadata hiding, without making that
+	// mode-owned state stick when switching back to native spectator.
+	mode := p.GameMode()
+	return p.invisible || mode != nil && !mode.Visible() && mode != world.GameModeSpectator
 }
 
 // SetImmobile prevents the player from moving around, but still allows them to look around.
@@ -1678,18 +1682,29 @@ func (p *Player) EnderChestInventory() *inventory.Inventory {
 // SetGameMode sets the game mode of a player. The game mode specifies the way that the player can interact
 // with the world that it is in.
 func (p *Player) SetGameMode(mode world.GameMode) {
-	previous := p.GameMode()
 	p.gameMode = mode
 
 	if !mode.AllowsFlying() {
 		p.StopFlying()
 	}
-	if !mode.Visible() {
-		p.SetInvisible()
-	} else if !previous.Visible() {
-		p.SetVisible()
+	if !mode.HasCollision() {
+		p.session().CloseContainer(p.tx)
+		if pos, ok := p.Sleeping(); ok {
+			p.Wake()
+			if b, ok := p.tx.Block(pos).(block.Bed); ok {
+				if safe, ok := b.SafeSpawn(pos, p.tx); ok {
+					p.teleport(safe.Vec3Middle())
+				}
+			}
+		}
+		p.StopGliding()
+		if p.usingItem {
+			p.usingItem = false
+			p.updateState()
+		}
 	}
 
+	p.updateState()
 	p.session().SendGameMode(p)
 	for _, v := range p.viewers() {
 		v.ViewEntityGameMode(p)
@@ -1738,6 +1753,9 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
 func (p *Player) UseItem() {
+	if p.GameMode() == world.GameModeSpectator {
+		return
+	}
 	i, _ := p.HeldItems()
 	ctx := NewEventContext(p.tx, p)
 	if p.HasCooldown(i.Item()) {
@@ -2301,6 +2319,9 @@ func (p *Player) obstructedPos(pos cube.Pos, b world.Block) (obstructed, selfOnl
 		case entity.ItemType, entity.ArrowType, entity.ExperienceOrbType:
 			continue
 		default:
+			if g, ok := e.(interface{ GameMode() world.GameMode }); ok && !g.GameMode().HasCollision() {
+				continue
+			}
 			if cube.AnyIntersections(blockBoxes, t.BBox(e).Translate(e.Position()).Grow(-1e-4)) {
 				obstructed = true
 				if e.H() == p.handle {
@@ -3182,6 +3203,9 @@ func (p *Player) checkBlockCollisions(vel mgl64.Vec3) {
 
 // checkEntityInsiders checks if the player is colliding with any EntityInsider blocks.
 func (p *Player) checkEntityInsiders(entityBBox cube.BBox) {
+	if !p.GameMode().HasCollision() {
+		return
+	}
 	box := entityBBox.Grow(-0.0001)
 	low, high := cube.PosFromVec3(box.Min()), cube.PosFromVec3(box.Max())
 
@@ -3209,7 +3233,7 @@ func (p *Player) checkEntityInsiders(entityBBox cube.BBox) {
 
 // checkEntitySteppers checks if the player is standing on any EntityStepper blocks.
 func (p *Player) checkEntitySteppers() {
-	if !p.OnGround() {
+	if !p.OnGround() || !p.GameMode().HasCollision() {
 		return
 	}
 	low, high := p.blocksUnder()

@@ -500,6 +500,11 @@ func (srv *Server) finaliseConn(ctx context.Context, conn session.Conn, l Listen
 // server.
 func (srv *Server) defaultGameData() minecraft.GameData {
 	mode := srv.world.DefaultGameMode()
+	if presentation, ok := mode.(world.ClientGameMode); ok {
+		if clientMode := presentation.ClientGameMode(); clientMode != nil {
+			mode = clientMode
+		}
+	}
 	gm, _ := world.GameModeID(mode)
 	if !mode.Visible() && !mode.HasCollision() {
 		// Dragonfly's stable spectator ID is 3, but Bedrock's native spectator

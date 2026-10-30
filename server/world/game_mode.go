@@ -25,6 +25,14 @@ type GameMode interface {
 	InstantPortalTravel() bool
 }
 
+// ClientGameMode optionally selects the vanilla mode shown to the player's own
+// client for a server-defined GameMode. Other viewers, abilities, interaction,
+// visibility and damage rules still use the original mode.
+// The returned mode must be non-nil. It is resolved once, not recursively.
+type ClientGameMode interface {
+	ClientGameMode() GameMode
+}
+
 var (
 	// GameModeSurvival is the survival game mode: Players with this game mode have limited supplies and can break blocks
 	// after taking some time.
