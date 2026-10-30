@@ -78,7 +78,7 @@ func (arrowType) DecodeNBT(m map[string]any, data *world.EntityData) {
 	conf.KnockBackForceAddend = enchantment.Punch.KnockBackMultiplier() * float64(nbtconv.Uint8(m, "enchantPunch"))
 	conf.CollisionPosition = nbtconv.Pos(m, "StuckToBlockPos")
 
-	data.Data = conf.New()
+	data.Data = projectileOwnerFromNBT(conf, m).New()
 }
 
 func (arrowType) EncodeNBT(data *world.EntityData) map[string]any {
@@ -94,5 +94,5 @@ func (arrowType) EncodeNBT(data *world.EntityData) map[string]any {
 	if b.collided {
 		m["StuckToBlockPos"] = nbtconv.PosToInt32Slice(b.collisionPos)
 	}
-	return m
+	return projectileOwnerToNBT(b, m)
 }

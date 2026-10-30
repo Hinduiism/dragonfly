@@ -1,11 +1,68 @@
 package player
 
 import (
+	"github.com/df-mc/dragonfly/server/item"
+	"github.com/df-mc/dragonfly/server/item/enchantment"
+	"github.com/df-mc/dragonfly/server/world"
 	"math"
 	"testing"
 
 	"github.com/go-gl/mathgl/mgl64"
 )
+
+func TestMotionOnlyMeleeSkipsAttackSideEffects(t *testing.T) {
+	withProjectileKnockBackPlayers(t, func(_ *world.Tx, owner, victim *Player) {
+		owner.Teleport(mgl64.Vec3{1, 64, -2})
+		h := &motionHitHandler{mode: HitKnockbackOnly}
+		victim.Handle(h)
+		weapon := item.NewStack(item.Sword{Tier: item.ToolTierDiamond}, 1).WithEnchantments(item.NewEnchantment(enchantment.FireAspect, 2), item.NewEnchantment(enchantment.Sharpness, 5))
+		armour := item.NewStack(item.Chestplate{Tier: item.ArmourTierDiamond{}}, 1).WithEnchantments(item.NewEnchantment(enchantment.Thorns, 3))
+		owner.SetHeldItems(weapon, item.Stack{})
+		victim.Armour().SetChestplate(armour)
+		victim.SetAbsorption(5)
+		if !owner.AttackEntity(victim) {
+			t.Fatal("eligible motion hit rejected")
+		}
+		main, _ := owner.HeldItems()
+		if victim.Health() != 20 || owner.Health() != 20 || victim.Absorption() != 5 || victim.OnFireDuration() != 0 || main.Durability() != weapon.Durability() || victim.Armour().Chestplate().Durability() != armour.Durability() || h.hurtCalls != 0 {
+			t.Fatal("motion-only melee triggered damage, durability, thorns or fire")
+		}
+		if !victim.Velocity().ApproxEqualThreshold(mgl64.Vec3{0, 0.4, 0.4}, 1e-12) {
+			t.Fatalf("changed melee motion: %v", victim.Velocity())
+		}
+		if owner.AttackEntity(victim) {
+			t.Fatal("repeated friendly hit bypassed its own melee gate")
+		}
+		victim.Handle(NopHandler{})
+		victim.Armour().SetChestplate(item.Stack{})
+		victim.SetAbsorption(0)
+		if r := victim.hurtByPlayerMelee(7, 7, owner, 0.4, 0.4); !r.accepted || victim.Health() != 13 {
+			t.Fatal("friendly hit consumed enemy melee window")
+		}
+	})
+}
+
+func TestMotionOnlyMeleeSpawnProtectionAndExpiry(t *testing.T) {
+	withProjectileKnockBackPlayers(t, func(_ *world.Tx, owner, victim *Player) {
+		victim.Handle(&motionHitHandler{mode: HitKnockbackOnly})
+		victim.motionMelee = newDirectMeleeState(true)
+		if r := victim.hurtByPlayerMelee(7, 7, owner, 0.4, 0.4); r.accepted {
+			t.Fatal("motion bypassed spawn protection")
+		}
+		victim.motionMelee.tick(1)
+		victim.motionMelee.tick(61)
+		if r := victim.hurtByPlayerMelee(7, 7, owner, 0.4, 0.4); !r.accepted {
+			t.Fatal("motion gate did not expire")
+		}
+		victim.motionMelee.tick(72)
+		if r := victim.hurtByPlayerMelee(7, 7, owner, 0.4, 0.4); !r.accepted {
+			t.Fatal("repeated motion gate did not expire")
+		}
+		if victim.directMelee.attackTime != 0 || victim.Health() != 20 {
+			t.Fatal("motion gate altered real melee state")
+		}
+	})
+}
 
 // Fixtures in this file are locked to PocketMine-MP commit
 // 6a7cc02e9dff59b69241aa0bcffdb9903ce86beb.

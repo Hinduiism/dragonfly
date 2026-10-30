@@ -15,6 +15,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 )
 
 // projectileKnockBacker allows a living entity to select its knockback policy
@@ -28,6 +29,8 @@ type projectileKnockBacker interface {
 // settings.
 type ProjectileBehaviourConfig struct {
 	Owner *world.EntityHandle
+	// OwnerID survives serialization when the live handle is unavailable.
+	OwnerID uuid.UUID
 	// Gravity is the amount of Y velocity subtracted every tick.
 	Gravity float64
 	// Drag is used to reduce all axes of the velocity every tick. Velocity is
@@ -101,6 +104,9 @@ func (conf ProjectileBehaviourConfig) Apply(data *world.EntityData) {
 // New creates a new ProjectileBehaviour using conf. The owner passed may be nil
 // if the projectile does not have one.
 func (conf ProjectileBehaviourConfig) New() *ProjectileBehaviour {
+	if conf.Owner != nil {
+		conf.OwnerID = conf.Owner.UUID()
+	}
 	if conf.ParticleCount == 0 && conf.Particle != nil {
 		conf.ParticleCount = 1
 	}
@@ -137,6 +143,34 @@ type ProjectileBehaviour struct {
 // Owner returns the owner of the projectile.
 func (lt *ProjectileBehaviour) Owner() *world.EntityHandle {
 	return lt.conf.Owner
+}
+
+func (lt *ProjectileBehaviour) damageSource(e *Ent) ProjectileDamageSource {
+	src := ProjectileDamageSource{Projectile: e, OwnerID: lt.conf.OwnerID}
+	if lt.conf.Owner != nil {
+		src.Owner, _ = lt.conf.Owner.Entity(e.tx)
+		src.OwnerID = lt.conf.Owner.UUID()
+	}
+	if src.Owner == nil && src.OwnerID != uuid.Nil {
+		src.Owner = projectileEffectOwner(e.tx, src.OwnerID)
+	}
+	return src
+}
+
+func projectileOwnerFromNBT(conf ProjectileBehaviourConfig, m map[string]any) ProjectileBehaviourConfig {
+	owner, _ := m["df:owner_uuid"].(string)
+	conf.OwnerID, _ = uuid.Parse(owner)
+	return conf
+}
+
+func projectileOwnerToNBT(behaviour *ProjectileBehaviour, m map[string]any) map[string]any {
+	if behaviour.conf.OwnerID != uuid.Nil {
+		if m == nil {
+			m = make(map[string]any)
+		}
+		m["df:owner_uuid"] = behaviour.conf.OwnerID.String()
+	}
+	return m
 }
 
 // Explode adds velocity to a projectile to blast it away from the explosion's
@@ -301,14 +335,13 @@ func (lt *ProjectileBehaviour) hitBlockSurviving(e *Ent, r trace.BlockResult, m 
 // hitEntity is called when a projectile hits an entity. It deals damage to the
 // entity if possible, and applies Living-specific effects such as knockback.
 func (lt *ProjectileBehaviour) hitEntity(victim world.Entity, e *Ent, vel mgl64.Vec3) {
-	owner, _ := lt.conf.Owner.Entity(e.tx)
-	src := ProjectileDamageSource{Projectile: e, Owner: owner}
+	src := lt.damageSource(e)
 	dmg := math.Ceil(lt.conf.Damage * vel.Len())
 	if lt.conf.Critical {
 		dmg += rand.Float64() * dmg / 2
 	}
 	// TODO: Piercing arrows should bypass shield blocking when shields are implemented.
-	if _, vulnerable, ok := HurtEntity(victim, dmg, src); ok && vulnerable {
+	if result, ok := HurtEntityWithResult(victim, dmg, src); ok && result.Vulnerable {
 		l, ok := victim.(Living)
 		if !ok {
 			return
@@ -318,6 +351,9 @@ func (lt *ProjectileBehaviour) hitEntity(victim world.Entity, e *Ent, vel mgl64.
 			target.KnockBackProjectile(src, vel, force, height)
 		} else {
 			l.KnockBack(l.Position().Sub(vel), force, height)
+		}
+		if result.KnockbackOnly {
+			return
 		}
 
 		for _, eff := range lt.conf.Potion.Effects() {

@@ -59,7 +59,9 @@ func (enderPearlType) EncodeEntity() string { return "minecraft:ender_pearl" }
 func (enderPearlType) BBox(world.Entity) cube.BBox {
 	return cube.Box(-0.125, 0, -0.125, 0.125, 0.25, 0.125)
 }
-func (enderPearlType) DecodeNBT(_ map[string]any, data *world.EntityData) {
-	data.Data = enderPearlConf.New()
+func (enderPearlType) DecodeNBT(m map[string]any, data *world.EntityData) {
+	data.Data = projectileOwnerFromNBT(enderPearlConf, m).New()
 }
-func (enderPearlType) EncodeNBT(*world.EntityData) map[string]any { return nil }
+func (enderPearlType) EncodeNBT(data *world.EntityData) map[string]any {
+	return projectileOwnerToNBT(data.Data.(*ProjectileBehaviour), nil)
+}

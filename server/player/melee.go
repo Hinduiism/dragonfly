@@ -218,6 +218,12 @@ func (p *Player) attackPlayer(target *Player) bool {
 
 	held, _ := p.HeldItems()
 	baseDamage := held.AttackDamage()
+	policy := target.hitPolicy(entity.AttackDamageSource{Attacker: p})
+	if policy == HitBlocked {
+		p.SwingArm()
+		p.tx.PlaySound(soundPos, sound.Attack{})
+		return false
+	}
 	damage := baseDamage
 	if strength, ok := p.Effect(effect.Strength); ok {
 		damage += damage * effect.Strength.Multiplier(strength.Level())
@@ -227,15 +233,21 @@ func (p *Player) attackPlayer(target *Player) bool {
 	}
 	if sharpness, ok := held.Enchantment(enchantment.Sharpness); ok {
 		damage += enchantment.Sharpness.Addend(sharpness.Level())
-		for _, viewer := range p.tx.Viewers(target.Position()) {
-			viewer.ViewEntityAction(target, entity.EnchantedHitAction{})
+		if policy != HitKnockbackOnly {
+			for _, viewer := range p.tx.Viewers(target.Position()) {
+				viewer.ViewEntityAction(target, entity.EnchantedHitAction{})
+			}
 		}
 	}
 	if critical {
 		damage *= 1.5
 	}
 
-	result := target.hurtByPlayerMelee(damage, baseDamage, p, force, verticalLimit)
+	result := target.hurtByPlayerMeleePolicy(damage, baseDamage, p, force, verticalLimit, policy)
+	if result.knockbackOnly {
+		p.SwingArm()
+		return result.accepted
+	}
 	if result.accepted {
 		if durable, ok := held.Item().(item.Durable); ok {
 			main, off := p.HeldItems()
@@ -264,11 +276,32 @@ func (p *Player) attackPlayer(target *Player) bool {
 }
 
 type playerMeleeHurtResult struct {
-	decision directMeleeDecision
-	accepted bool
+	decision      directMeleeDecision
+	accepted      bool
+	knockbackOnly bool
 }
 
 func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player, force, verticalLimit float64) playerMeleeHurtResult {
+	return p.hurtByPlayerMeleePolicy(damage, baseDamage, attacker, force, verticalLimit, p.hitPolicy(entity.AttackDamageSource{Attacker: attacker}))
+}
+
+func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *Player, force, verticalLimit float64, policy HitPolicy) playerMeleeHurtResult {
+	if policy == HitBlocked {
+		return playerMeleeHurtResult{}
+	}
+	if policy == HitKnockbackOnly {
+		decision := p.motionMelee.classify(baseDamage)
+		result := playerMeleeHurtResult{decision: decision, knockbackOnly: true}
+		if decision == directMeleeProtected || decision == directMeleeWarmRejected {
+			return result
+		}
+		p.motionMelee.commit(decision, baseDamage)
+		if decision == directMeleeCold {
+			p.knockBackMelee(attacker.Position(), force, verticalLimit)
+		}
+		result.accepted = true
+		return result
+	}
 	decision := p.directMelee.classify(baseDamage)
 	if decision == directMeleeProtected || decision == directMeleeWarmRejected {
 		return playerMeleeHurtResult{decision: decision}
@@ -276,6 +309,7 @@ func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player,
 	result := p.hurt(damage, entity.AttackDamageSource{Attacker: attacker}, hurtOptions{
 		continueThroughImmunity: true,
 		deferHurtAction:         true,
+		policyChecked:           true,
 	})
 	if !result.policyAccepted {
 		return playerMeleeHurtResult{decision: decision}

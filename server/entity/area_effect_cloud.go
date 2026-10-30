@@ -6,11 +6,16 @@ import (
 	"github.com/df-mc/dragonfly/server/internal/nbtconv"
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/google/uuid"
 	"time"
 )
 
 // NewAreaEffectCloud creates a new area effect cloud entity and returns it.
 func NewAreaEffectCloud(opts world.EntitySpawnOpts, p potion.Potion) *world.EntityHandle {
+	return opts.New(AreaEffectCloudType, areaEffectCloudConfig(p))
+}
+
+func areaEffectCloudConfig(p potion.Potion) AreaEffectCloudBehaviourConfig {
 	config := areaEffectCloudConf
 	config.Potion = p
 	for _, e := range p.Effects() {
@@ -19,7 +24,7 @@ func NewAreaEffectCloud(opts world.EntitySpawnOpts, p potion.Potion) *world.Enti
 			break
 		}
 	}
-	return opts.New(AreaEffectCloudType, config)
+	return config
 }
 
 var areaEffectCloudConf = AreaEffectCloudBehaviourConfig{
@@ -58,7 +63,9 @@ func (areaEffectCloudType) BBox(e world.Entity) cube.BBox {
 }
 
 func (areaEffectCloudType) DecodeNBT(m map[string]any, data *world.EntityData) {
+	owner, _ := uuid.Parse(nbtconv.String(m, "df:owner_uuid"))
 	data.Data = AreaEffectCloudBehaviourConfig{
+		OwnerID:            owner,
 		Potion:             potion.From(nbtconv.Int32(m, "PotionId")),
 		Radius:             float64(nbtconv.Float32(m, "Radius")),
 		RadiusUseGrowth:    float64(nbtconv.Float32(m, "RadiusOnUse")),
@@ -71,7 +78,7 @@ func (areaEffectCloudType) DecodeNBT(m map[string]any, data *world.EntityData) {
 
 func (areaEffectCloudType) EncodeNBT(data *world.EntityData) map[string]any {
 	a := data.Data.(*AreaEffectCloudBehaviour)
-	return map[string]any{
+	m := map[string]any{
 		"PotionId":           int32(a.conf.Potion.Uint8()),
 		"ReapplicationDelay": int32(a.conf.ReapplicationDelay / (time.Second / 20)),
 		"RadiusPerTick":      float32(a.conf.RadiusTickGrowth),
@@ -80,4 +87,8 @@ func (areaEffectCloudType) EncodeNBT(data *world.EntityData) map[string]any {
 		"Radius":             float32(a.radius),
 		"Duration":           int32(a.duration / (time.Second / 20)),
 	}
+	if a.conf.OwnerID != uuid.Nil {
+		m["df:owner_uuid"] = a.conf.OwnerID.String()
+	}
+	return m
 }

@@ -94,6 +94,10 @@ type playerData struct {
 	projectileImmuneUntil time.Time
 
 	directMelee directMeleeState
+	motionMelee directMeleeState
+	// Motion-only projectile timing never changes ordinary damage immunity.
+	motionProjectileUntil  time.Time
+	motionProjectileDamage float64
 
 	deathPos       *mgl64.Vec3
 	deathDimension world.Dimension
@@ -655,27 +659,79 @@ func (p *Player) blocksUnder() (low, high cube.Pos) {
 // final damage dealt to the Player and if the Player was vulnerable to this
 // kind of damage.
 func (p *Player) Hurt(dmg float64, src world.DamageSource) (float64, bool) {
+	result := p.HurtWithResult(dmg, src)
+	return result.Damage, result.Vulnerable && !result.KnockbackOnly
+}
+
+// HurtWithResult also reports motion-only acceptance to hit implementations
+// that explicitly support it. Hurt retains its existing public signature.
+func (p *Player) HurtWithResult(dmg float64, src world.DamageSource) entity.HitResult {
 	result := p.hurt(dmg, src, hurtOptions{})
-	if _, projectile := src.(entity.ProjectileDamageSource); !projectile {
+	if _, projectile := src.(entity.ProjectileDamageSource); !projectile && !result.knockbackOnly {
 		p.observeDamageForMelee(dmg, result.policyAccepted)
 	}
-	return result.damage, result.vulnerable
+	return entity.HitResult{Damage: result.damage, Vulnerable: result.vulnerable, KnockbackOnly: result.knockbackOnly}
 }
 
 type hurtOptions struct {
 	continueThroughImmunity bool
 	deferHurtAction         bool
+	policyChecked           bool
 }
 
 type hurtResult struct {
 	damage         float64
 	vulnerable     bool
 	policyAccepted bool
+	knockbackOnly  bool
+}
+
+func (p *Player) hitPolicy(src world.DamageSource) HitPolicy {
+	if p.Dead() || !p.GameMode().AllowsTakingDamage() {
+		return HitBlocked
+	}
+	if handler, ok := p.Handler().(HitPolicyHandler); ok {
+		ctx := NewEventContext(p.tx, p)
+		policy := handler.HandleHit(ctx, src)
+		if ctx.Cancelled() || policy > HitBlocked {
+			return HitBlocked
+		}
+		return policy
+	}
+	return HitNormal
+}
+
+// AllowsProjectileEffect checks harmful effects before they become unattributed
+// poison/fire-like damage. It does not consume hit or immunity windows.
+func (p *Player) AllowsProjectileEffect(src entity.ProjectileDamageSource) bool {
+	return p.hitPolicy(src) == HitNormal
 }
 
 func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hurtResult {
 	if _, ok := p.Effect(effect.FireResistance); (ok && src.Fire()) || p.Dead() || !p.GameMode().AllowsTakingDamage() || dmg < 0 {
 		return hurtResult{}
+	}
+	if !opts.policyChecked {
+		switch p.hitPolicy(src) {
+		case HitBlocked:
+			return hurtResult{}
+		case HitKnockbackOnly:
+			accepted := false
+			switch src.(type) {
+			case entity.ProjectileDamageSource:
+				if p.motionMelee.noDamageTicks == 0 && (!time.Now().Before(p.motionProjectileUntil) || dmg > p.motionProjectileDamage) {
+					p.motionProjectileUntil = time.Now().Add(time.Second / 2)
+					p.motionProjectileDamage, accepted = dmg, true
+				}
+			case entity.AttackDamageSource:
+				decision := p.motionMelee.classify(dmg)
+				accepted = decision != directMeleeProtected && decision != directMeleeWarmRejected
+				if accepted {
+					p.motionMelee.commit(decision, dmg)
+				}
+			}
+			return hurtResult{vulnerable: accepted, policyAccepted: accepted, knockbackOnly: true}
+		}
 	}
 	totalDamage := p.FinalDamageFrom(dmg, src)
 	damageLeft := totalDamage
@@ -1106,6 +1162,8 @@ func (p *Player) respawn(f func(p *Player)) {
 	p.Extinguish()
 	p.ResetFallDistance()
 	p.directMelee.noDamageTicks = directMeleeSpawnProtectionTicks
+	p.motionMelee = newDirectMeleeState(true)
+	p.motionProjectileUntil, p.motionProjectileDamage = time.Time{}, 0
 
 	p.Handler().HandleRespawn(p, &pos, &w)
 
@@ -1117,6 +1175,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	restore := func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
 		np.directMelee.resumeAt(tx.CurrentTick())
+		np.motionMelee.resumeAt(tx.CurrentTick())
 		if f != nil {
 			f(np)
 			return
@@ -1126,6 +1185,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	task := w.Do(func(tx *world.Tx) {
 		np := tx.AddEntity(handle).(*Player)
 		np.directMelee.resumeAt(tx.CurrentTick())
+		np.motionMelee.resumeAt(tx.CurrentTick())
 		np.Teleport(pos)
 		np.session().SendRespawn(pos, p)
 		np.SetVisible()
@@ -2776,6 +2836,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 		// World tick values are local to each world. Rebase the private
 		// Direct-melee counters so a transfer cannot charge an unrelated gap.
 		p.directMelee.resumeAt(current - 1)
+		p.motionMelee.resumeAt(current - 1)
 	}
 	if _, ok := p.tx.Liquid(cube.PosFromVec3(p.Position())); !ok {
 		p.StopSwimming()
@@ -2864,6 +2925,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	}
 
 	p.directMelee.tick(current)
+	p.motionMelee.tick(current)
 	p.portalTravel.StopPortalContact()
 }
 

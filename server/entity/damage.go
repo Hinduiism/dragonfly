@@ -4,6 +4,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/enchantment"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/google/uuid"
 )
 
 type (
@@ -42,6 +43,9 @@ type (
 		// Projectile and Owner are the world.Entity that dealt the damage and
 		// the one that fired the projectile respectively.
 		Projectile, Owner world.Entity
+		// OwnerID retains attribution when the owner leaves the world or a
+		// lingering cloud survives a save/load. Owner may then be nil.
+		OwnerID uuid.UUID
 	}
 
 	// ExplosionDamageSource is used for damage caused by an explosion.

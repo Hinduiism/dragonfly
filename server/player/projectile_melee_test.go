@@ -5,9 +5,110 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server/entity"
+	"github.com/df-mc/dragonfly/server/entity/effect"
+	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 )
+
+func TestProjectileHitModesControlIgnitionAndPotionEffects(t *testing.T) {
+	for _, mode := range []HitPolicy{HitNormal, HitKnockbackOnly, HitBlocked} {
+		t.Run([]string{"normal", "motion", "blocked"}[mode], func(t *testing.T) {
+			withProjectileKnockBackPlayers(t, func(tx *world.Tx, owner, victim *Player) {
+				h := &motionHitHandler{mode: mode}
+				victim.Handle(h)
+				opts := projectileKnockBackOpts()
+				opts.Velocity = mgl64.Vec3{5, 0, 0}
+				arrow := tx.AddEntity(entity.NewTippedArrow(opts, owner, potion.Poison())).(*entity.Ent)
+				arrow.SetOnFire(time.Second * 5)
+				arrow.Behaviour().(*entity.ProjectileBehaviour).Tick(arrow, tx)
+				_, poisoned := victim.Effect(effect.Poison)
+				if mode == HitNormal {
+					if victim.Health() >= 20 || victim.OnFireDuration() == 0 || !poisoned || h.hurtCalls != 1 {
+						t.Fatal("normal arrow behaviour regressed")
+					}
+					return
+				}
+				if victim.Health() != 20 || victim.OnFireDuration() != 0 || poisoned || h.hurtCalls != 0 {
+					t.Fatal("protected arrow applied damage/effects")
+				}
+				if mode == HitKnockbackOnly && !victim.Velocity().ApproxEqualThreshold(mgl64.Vec3{0.45, 0.3608, 0}, 1e-12) {
+					t.Fatalf("motion arrow changed physics: %v", victim.Velocity())
+				}
+				if mode == HitBlocked && victim.Velocity() != (mgl64.Vec3{}) {
+					t.Fatal("blocked arrow applied motion")
+				}
+			})
+		})
+	}
+}
+
+func TestProtectedSplashAndLingeringEffects(t *testing.T) {
+	for _, mode := range []HitPolicy{HitNormal, HitKnockbackOnly, HitBlocked} {
+		t.Run([]string{"normal", "motion", "blocked"}[mode], func(t *testing.T) {
+			withProjectileKnockBackPlayers(t, func(tx *world.Tx, owner, victim *Player) {
+				victim.Handle(&motionHitHandler{mode: mode})
+				opts := projectileKnockBackOpts()
+				opts.Velocity = mgl64.Vec3{5, 0, 0}
+				splash := tx.AddEntity(entity.NewSplashPotion(opts, potion.Poison(), owner)).(*entity.Ent)
+				splash.Behaviour().(*entity.ProjectileBehaviour).Tick(splash, tx)
+				_, poisoned := victim.Effect(effect.Poison)
+				if poisoned != (mode == HitNormal) {
+					t.Fatal("splash ignored hit policy")
+				}
+				victim.RemoveEffect(effect.Poison)
+				conf := entity.AreaEffectCloudBehaviourConfig{Potion: potion.Poison(), OwnerID: owner.H().UUID()}
+				var data, decoded world.EntityData
+				conf.Apply(&data)
+				saved := entity.AreaEffectCloudType.EncodeNBT(&data)
+				entity.AreaEffectCloudType.DecodeNBT(saved, &decoded)
+				if entity.AreaEffectCloudType.EncodeNBT(&decoded)["df:owner_uuid"] != owner.H().UUID().String() {
+					t.Fatal("cloud lost saved ownership")
+				}
+				cloud := tx.AddEntity(world.EntitySpawnOpts{Position: victim.Position().Sub(mgl64.Vec3{0, 0.25, 0})}.New(entity.AreaEffectCloudType, conf)).(*entity.Ent)
+				for i := int64(0); i < 12; i++ {
+					cloud.Tick(tx, i)
+				}
+				_, poisoned = victim.Effect(effect.Poison)
+				if poisoned != (mode == HitNormal) {
+					t.Fatal("lingering cloud ignored hit policy")
+				}
+				victim.RemoveEffect(effect.Poison)
+				victim.SetHealth(10)
+				heal := tx.AddEntity(world.EntitySpawnOpts{Position: victim.Position().Sub(mgl64.Vec3{0, 0.25, 0})}.New(entity.AreaEffectCloudType, entity.AreaEffectCloudBehaviourConfig{Potion: potion.Healing(), OwnerID: owner.H().UUID()})).(*entity.Ent)
+				for i := int64(0); i < 12; i++ {
+					heal.Tick(tx, i)
+				}
+				if victim.Health() <= 10 {
+					t.Fatal("friendly protection blocked beneficial potion")
+				}
+			})
+		})
+	}
+}
+
+func TestProjectileOwnershipRoundTripAndOrphanedCloud(t *testing.T) {
+	withProjectileKnockBackPlayers(t, func(tx *world.Tx, owner, victim *Player) {
+		for _, typ := range []world.EntityType{entity.ArrowType, entity.SnowballType, entity.EggType, entity.SplashPotionType, entity.LingeringPotionType, entity.EnderPearlType, entity.BottleOfEnchantingType} {
+			var data, decoded world.EntityData
+			entity.ProjectileBehaviourConfig{Owner: owner.H()}.Apply(&data)
+			saved := typ.EncodeNBT(&data)
+			typ.DecodeNBT(saved, &decoded)
+			if typ.EncodeNBT(&decoded)["df:owner_uuid"] != owner.H().UUID().String() {
+				t.Fatalf("%s lost saved ownership", typ.EncodeEntity())
+			}
+		}
+		victim.Handle(&motionHitHandler{mode: HitNormal, orphanBlocked: true})
+		cloud := tx.AddEntity(world.EntitySpawnOpts{Position: victim.Position().Sub(mgl64.Vec3{0, 0.25, 0})}.New(entity.AreaEffectCloudType, entity.AreaEffectCloudBehaviourConfig{Potion: potion.Poison(), OwnerID: owner.H().UUID()})).(*entity.Ent)
+		tx.RemoveEntity(owner)
+		for i := int64(0); i < 12; i++ {
+			cloud.Tick(tx, i)
+		}
+		if _, poisoned := victim.Effect(effect.Poison); poisoned {
+			t.Fatal("cloud became unowned and bypassed protection")
+		}
+	})
+}
 
 func TestSnowballAndMeleeHaveIndependentCooldowns(t *testing.T) {
 	for _, snowballFirst := range []bool{true, false} {

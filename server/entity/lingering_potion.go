@@ -46,9 +46,9 @@ func (lingeringPotionType) DecodeNBT(m map[string]any, data *world.EntityData) {
 	conf.Particle = particle.Splash{Colour: colour}
 	conf.Hit = potionSplash(0.25, conf.Potion, true)
 
-	data.Data = conf.New()
+	data.Data = projectileOwnerFromNBT(conf, m).New()
 }
 
 func (lingeringPotionType) EncodeNBT(data *world.EntityData) map[string]any {
-	return map[string]any{"PotionId": int32(data.Data.(*ProjectileBehaviour).conf.Potion.Uint8())}
+	return projectileOwnerToNBT(data.Data.(*ProjectileBehaviour), map[string]any{"PotionId": int32(data.Data.(*ProjectileBehaviour).conf.Potion.Uint8())})
 }

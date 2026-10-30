@@ -8,12 +8,15 @@ import (
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 )
 
 // AreaEffectCloudBehaviourConfig contains optional parameters for an area
 // effect cloud entity.
 type AreaEffectCloudBehaviourConfig struct {
 	Potion potion.Potion
+	// OwnerID preserves attribution for player-thrown lingering potions.
+	OwnerID uuid.UUID
 	// Radius specifies the initial radius of the cloud. Defaults to 3.0.
 	Radius float64
 	// RadiusUseGrowth is the value that is added to the radius every time the
@@ -136,17 +139,26 @@ func (a *AreaEffectCloudBehaviour) filter(seq iter.Seq[world.Entity]) iter.Seq[w
 // cooldown period.
 func (a *AreaEffectCloudBehaviour) applyEffects(pos mgl64.Vec3, ent *Ent, entities iter.Seq[world.Entity]) bool {
 	var update bool
+	src := ProjectileDamageSource{Projectile: ent, Owner: projectileEffectOwner(ent.tx, a.conf.OwnerID), OwnerID: a.conf.OwnerID}
 	for e := range entities {
 		delta := e.Position().Sub(pos)
 		delta[1] = 0
 		if delta.Len() <= a.radius {
 			l := e.(Living)
+			applied := false
 			for _, eff := range a.Effects() {
+				if !projectileEffectAllowed(l, src, eff) {
+					continue
+				}
+				applied = true
 				if lasting, ok := eff.Type().(effect.LastingType); ok {
 					l.AddEffect(effect.New(lasting, eff.Level(), eff.Duration()/4))
 					continue
 				}
 				l.AddEffect(eff)
+			}
+			if !applied {
+				continue
 			}
 
 			a.targets[e.H()] = ent.Age() + a.conf.ReapplicationDelay

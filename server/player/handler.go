@@ -13,6 +13,22 @@ import (
 	"github.com/go-gl/mathgl/mgl64"
 )
 
+// HitPolicy selects whether a hit uses the ordinary damage path or only motion.
+type HitPolicy uint8
+
+const (
+	HitNormal HitPolicy = iota
+	HitKnockbackOnly
+	HitBlocked
+)
+
+// HitPolicyHandler is an optional extension to Handler. It is called before
+// hit immunity and damage side effects. Cancel takes precedence over its result.
+// Existing handlers that do not implement it retain ordinary hit processing.
+type HitPolicyHandler interface {
+	HandleHit(ctx *Context, source world.DamageSource) HitPolicy
+}
+
 // Handler handles events that are called by a player. Implementations of Handler may be used to listen to
 // specific events such as when a player chats or moves.
 type Handler interface {

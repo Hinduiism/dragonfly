@@ -8,6 +8,7 @@ import (
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 	"time"
 )
 
@@ -25,6 +26,24 @@ type SplashableEntity interface {
 	Splash(tx *world.Tx, pos mgl64.Vec3)
 }
 
+// Beneficial effects keep ordinary splash semantics. Harmful/unknown effects
+// consult the victim's optional hit policy before losing their owner context.
+func projectileEffectAllowed(target Living, src ProjectileDamageSource, eff effect.Effect) bool {
+	switch eff.Type() {
+	case effect.Absorption, effect.ConduitPower, effect.FireResistance, effect.Haste,
+		effect.HealthBoost, effect.InstantHealth, effect.Invisibility, effect.JumpBoost,
+		effect.NightVision, effect.Regeneration, effect.Resistance, effect.Saturation,
+		effect.SlowFalling, effect.Speed, effect.Strength, effect.WaterBreathing:
+		return true
+	}
+	if receiver, ok := target.(interface {
+		AllowsProjectileEffect(ProjectileDamageSource) bool
+	}); ok {
+		return receiver.AllowsProjectileEffect(src)
+	}
+	return true
+}
+
 // potionSplash returns a function that creates a potion splash with a specific
 // duration multiplier and potion type.
 func potionSplash(durMul float64, pot potion.Potion, linger bool) func(e *Ent, tx *world.Tx, res trace.Result) {
@@ -32,6 +51,10 @@ func potionSplash(durMul float64, pot potion.Potion, linger bool) func(e *Ent, t
 		pos := e.Position()
 		effects := pot.Effects()
 		box := e.H().Type().BBox(e).Translate(pos)
+		src := ProjectileDamageSource{Projectile: e}
+		if behaviour, ok := e.Behaviour().(*ProjectileBehaviour); ok {
+			src = behaviour.damageSource(e)
+		}
 
 		if len(effects) > 0 {
 			for otherE := range filterLiving(tx.EntitiesWithin(box.GrowVec3(mgl64.Vec3{8.25, 4.25, 8.25}))) {
@@ -52,6 +75,9 @@ func potionSplash(durMul float64, pot potion.Potion, linger bool) func(e *Ent, t
 
 				splashed := otherE.(Living)
 				for _, eff := range effects {
+					if !projectileEffectAllowed(splashed, src, eff) {
+						continue
+					}
 					if _, ok := eff.Type().(effect.LastingType); !ok {
 						splashed.AddEffect(effect.NewInstantWithPotency(eff.Type(), eff.Level(), f))
 						continue
@@ -98,7 +124,21 @@ func potionSplash(durMul float64, pot potion.Potion, linger bool) func(e *Ent, t
 			}
 		}
 		if linger {
-			tx.AddEntity(NewAreaEffectCloud(world.EntitySpawnOpts{Position: pos}, pot))
+			conf := areaEffectCloudConfig(pot)
+			conf.OwnerID = src.OwnerID
+			tx.AddEntity(world.EntitySpawnOpts{Position: pos}.New(AreaEffectCloudType, conf))
 		}
 	}
+}
+
+func projectileEffectOwner(tx *world.Tx, id uuid.UUID) world.Entity {
+	if id == uuid.Nil {
+		return nil
+	}
+	for e := range tx.Entities() {
+		if e.H().UUID() == id {
+			return e
+		}
+	}
+	return nil
 }
