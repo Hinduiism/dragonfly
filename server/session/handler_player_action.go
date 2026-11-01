@@ -47,7 +47,7 @@ func handlePlayerAction(action int32, face int32, pos protocol.BlockPos, entityR
 	case protocol.PlayerActionStartItemUseOn:
 		// TODO: Properly utilize these actions.
 	case protocol.PlayerActionStopItemUseOn:
-		c.ReleaseItem()
+		// This action cancels use. Bow firing belongs to a release transaction.
 	case protocol.PlayerActionInteractWithBlock:
 		// Don't do anything for this action.
 	case protocol.PlayerActionCreativePlayerDestroyBlock:
@@ -58,6 +58,9 @@ func handlePlayerAction(action int32, face int32, pos protocol.BlockPos, entityR
 		c.PunchAir()
 	default:
 		return fmt.Errorf("unhandled ActionType %v", action)
+	}
+	if user, ok := c.(interface{ CancelItemUse() }); ok {
+		user.CancelItemUse()
 	}
 	return nil
 }

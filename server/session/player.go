@@ -774,6 +774,17 @@ func (s *Session) uiInventoryFunc(tx *world.Tx, c Controllable) inventory.SlotFu
 	}
 }
 
+// ResendHeldItem corrects the selected stack without changing it.
+func (s *Session) ResendHeldItem() {
+	if s == nil || s.inv == nil || s.heldSlot == nil {
+		return
+	}
+	slot := int(*s.heldSlot)
+	if held, err := s.inv.Item(slot); err == nil {
+		s.sendItem(held, slot, protocol.WindowIDInventory)
+	}
+}
+
 // SendHeldSlot sends the currently held hotbar slot.
 func (s *Session) SendHeldSlot(slot int, c Controllable, force bool) {
 	if s.changingSlot.Load() && !force {

@@ -8,8 +8,14 @@ import (
 
 func TestNaturalRegenerationUsesEightyTickCadence(t *testing.T) {
 	withHungerTestPlayer(t, world.DifficultyNormal, Config{
-		Health: 10, MaxHealth: 20, FoodTick: 1, Food: 20, Saturation: 20,
+		Health: 10, MaxHealth: 20, Food: 20, Saturation: 20,
 	}, func(p *Player) {
+		for range 79 {
+			p.tickFood()
+		}
+		if got := p.Health(); got != 10 {
+			t.Fatalf("health before first 80-tick interval = %v, want 10", got)
+		}
 		p.tickFood()
 		if got := p.Health(); got != 11 {
 			t.Fatalf("health after first regeneration tick = %v, want 11", got)
@@ -31,7 +37,7 @@ func TestNaturalRegenerationUsesEightyTickCadence(t *testing.T) {
 
 func TestNaturalRegenerationRequiresEighteenFood(t *testing.T) {
 	withHungerTestPlayer(t, world.DifficultyNormal, Config{
-		Health: 10, MaxHealth: 20, FoodTick: 1, Food: 17, Saturation: 17,
+		Health: 10, MaxHealth: 20, FoodTick: 79, Food: 17, Saturation: 17,
 	}, func(p *Player) {
 		p.tickFood()
 		if got := p.Health(); got != 10 {
@@ -43,7 +49,7 @@ func TestNaturalRegenerationRequiresEighteenFood(t *testing.T) {
 func TestNaturalRegenerationConsumesExhaustionOnlyAfterHealing(t *testing.T) {
 	t.Run("heals", func(t *testing.T) {
 		withHungerTestPlayer(t, world.DifficultyNormal, Config{
-			Health: 10, MaxHealth: 20, FoodTick: 1, Food: 20, Saturation: 5,
+			Health: 10, MaxHealth: 20, FoodTick: 79, Food: 20, Saturation: 5,
 		}, func(p *Player) {
 			p.tickFood()
 			if got := p.hunger.saturationLevel; got != 4 {
@@ -57,7 +63,7 @@ func TestNaturalRegenerationConsumesExhaustionOnlyAfterHealing(t *testing.T) {
 
 	t.Run("already full", func(t *testing.T) {
 		withHungerTestPlayer(t, world.DifficultyNormal, Config{
-			Health: 20, MaxHealth: 20, FoodTick: 1, Food: 20, Saturation: 5,
+			Health: 20, MaxHealth: 20, FoodTick: 79, Food: 20, Saturation: 5,
 		}, func(p *Player) {
 			p.tickFood()
 			if got := p.hunger.saturationLevel; got != 5 {
@@ -72,7 +78,7 @@ func TestNaturalRegenerationConsumesExhaustionOnlyAfterHealing(t *testing.T) {
 
 func TestPeacefulFoodAndHealthRegenerationRemainEnabled(t *testing.T) {
 	withHungerTestPlayer(t, world.DifficultyPeaceful, Config{
-		Health: 10, MaxHealth: 20, FoodTick: 20, Food: 10, Saturation: 0,
+		Health: 10, MaxHealth: 20, FoodTick: 19, Food: 10, Saturation: 0,
 	}, func(p *Player) {
 		p.tickFood()
 		if got := p.Food(); got != 11 {

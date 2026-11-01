@@ -62,11 +62,11 @@ func TestResetHungerRestoresAllStateAndSendsAttributes(t *testing.T) {
 		p.hunger.exhaustionLevel = 3
 		p.hunger.foodTick = 77
 		p.ResetHunger()
-		if p.hunger.foodLevel != 20 || p.hunger.saturationLevel != 5 || p.hunger.exhaustionLevel != 0 || p.hunger.foodTick != 1 {
+		if p.hunger.foodLevel != 20 || p.hunger.saturationLevel != 20 || p.hunger.exhaustionLevel != 0 || p.hunger.foodTick != 0 {
 			t.Fatalf("hunger = food:%d saturation:%v exhaustion:%v tick:%d", p.hunger.foodLevel, p.hunger.saturationLevel, p.hunger.exhaustionLevel, p.hunger.foodTick)
 		}
 		assertAttribute(t, conn, "minecraft:player.hunger", 20)
-		assertAttribute(t, conn, "minecraft:player.saturation", 5)
+		assertAttribute(t, conn, "minecraft:player.saturation", 20)
 		assertAttribute(t, conn, "minecraft:player.exhaustion", 0)
 	})
 }

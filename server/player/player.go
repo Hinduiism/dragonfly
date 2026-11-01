@@ -64,7 +64,8 @@ type playerData struct {
 	sleeping bool
 	sleepPos cube.Pos
 
-	usingSince time.Time
+	usingSince    time.Time
+	consumableUse consumableUseState
 
 	glideTicks   int64
 	fireTicks    int64
@@ -959,7 +960,7 @@ func (p *Player) AddFood(points int) {
 }
 
 // Saturate saturates the player's food bar with the amount of food points and saturation points passed. The
-// total saturation of the player will never exceed its total food level.
+// total saturation of the player will never exceed 20.
 func (p *Player) Saturate(food int, saturation float64) {
 	p.hunger.saturate(food, saturation)
 	p.sendFood()
@@ -1009,7 +1010,7 @@ func (p *Player) Exhaust(points float64) {
 	if !p.GameMode().AllowsTakingDamage() || p.tx.World().Difficulty().FoodRegenerates() {
 		return
 	}
-	before := p.hunger.Food()
+	before, foodTick := p.hunger.Food(), p.hunger.foodTick
 	p.hunger.exhaust(points)
 	if after := p.hunger.Food(); before != after {
 		// Temporarily set the food level back so that it hasn't yet changed once the event is handled.
@@ -1020,7 +1021,8 @@ func (p *Player) Exhaust(points float64) {
 			// Reset the exhaustion level if the event was cancelled. Because if
 			// we cancel this, and at some point we stop cancelling it, the
 			// first food point will be lost more quickly than expected.
-			p.hunger.resetExhaustion()
+			p.hunger.resetExhaustion(foodTick)
+			p.sendFood()
 			return
 		}
 		p.hunger.SetFood(after)
@@ -1049,6 +1051,7 @@ func (p *Player) DeathPosition() (mgl64.Vec3, world.Dimension, bool) {
 
 // kill kills the player, clearing its inventories and resetting it to its base state.
 func (p *Player) kill(src world.DamageSource) {
+	p.CancelItemUse()
 	for _, viewer := range p.viewers() {
 		viewer.ViewEntityAction(p, entity.DeathAction{})
 	}
@@ -1157,6 +1160,7 @@ func (p *Player) respawn(f func(p *Player)) {
 	}
 
 	p.addHealth(p.MaxHealth())
+	p.CancelItemUse()
 	p.hunger.Reset()
 	p.sendFood()
 	p.Extinguish()
@@ -1640,6 +1644,7 @@ func (p *Player) HeldItems() (mainHand, offHand item.Stack) {
 func (p *Player) SetHeldItems(mainHand, offHand item.Stack) {
 	_ = p.inv.SetItem(int(*p.heldSlot), mainHand)
 	_ = p.offHand.SetItem(0, offHand)
+	p.ValidateHeldItemUse()
 }
 
 // SetHeldSlot updates the held slot of the player to the slot provided. The
@@ -1664,7 +1669,7 @@ func (p *Player) SetHeldSlot(to int) error {
 		return nil
 	}
 	*p.heldSlot = uint32(to)
-	p.usingItem = false
+	p.CancelItemUse()
 
 	for _, viewer := range p.viewers() {
 		viewer.ViewEntityItems(p)
@@ -1683,6 +1688,9 @@ func (p *Player) EnderChestInventory() *inventory.Inventory {
 // with the world that it is in.
 func (p *Player) SetGameMode(mode world.GameMode) {
 	p.gameMode = mode
+	if !mode.AllowsInteraction() {
+		p.CancelItemUse()
+	}
 
 	if !mode.AllowsFlying() {
 		p.StopFlying()
@@ -1698,10 +1706,7 @@ func (p *Player) SetGameMode(mode world.GameMode) {
 			}
 		}
 		p.StopGliding()
-		if p.usingItem {
-			p.usingItem = false
-			p.updateState()
-		}
+		p.CancelItemUse()
 	}
 
 	p.updateState()
@@ -1753,15 +1758,26 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
 func (p *Player) UseItem() {
-	if !p.GameMode().AllowsInteraction() {
+	p.ValidateHeldItemUse()
+	i, _ := p.HeldItems()
+	if p.Dead() || !p.GameMode().AllowsInteraction() {
+		p.CancelItemUse()
+		p.rejectConsumableUse(i)
 		return
 	}
-	i, _ := p.HeldItems()
 	ctx := NewEventContext(p.tx, p)
 	if p.HasCooldown(i.Item()) {
+		p.rejectConsumableUse(i)
 		return
 	}
 	if p.Handler().HandleItemUse(ctx); ctx.Cancelled() {
+		p.rejectConsumableUse(i)
+		return
+	}
+	p.ValidateHeldItemUse()
+	if p.Dead() || !p.GameMode().AllowsInteraction() {
+		p.CancelItemUse()
+		p.rejectConsumableUse(i)
 		return
 	}
 	i, left := p.HeldItems()
@@ -1810,53 +1826,32 @@ func (p *Player) UseItem() {
 		p.SetHeldItems(p.subtractItem(p.damageItem(i, useCtx.Damage), useCtx.CountSub), left)
 		p.addNewItem(useCtx)
 	case item.Consumable:
-		if c, ok := usable.(interface{ CanConsume() bool }); ok && !c.CanConsume() {
-			p.ReleaseItem()
+		if !p.canConsume(usable) {
+			p.rejectConsumableUse(i)
 			return
 		}
-		if !usable.AlwaysConsumable() && p.GameMode().AllowsTakingDamage() && p.Food() >= 20 {
-			// The item.Consumable is not always consumable, the player is not in creative mode and the
-			// food bar is filled: The item cannot be consumed.
-			p.ReleaseItem()
-			return
-		}
-		if !p.usingItem {
-			// Consumable starts being consumed: Set the start timestamp and update the using state to viewers.
-			p.usingItem, p.usingSince = true, time.Now()
-			p.updateState()
-			return
-		}
-		// The player is currently using the item held. This is a signal the item was consumed, so we
-		// consume it and start using it again.
-		useCtx, dur := p.useContext(), p.useDuration()
-		if dur < usable.ConsumeDuration() {
-			// The required duration for consuming this item was not met, so we don't consume it.
-			return
-		}
-		// Reset the duration for the next item to be consumed.
-		p.usingSince = time.Now()
-		ctx := NewEventContext(p.tx, p)
-		if p.Handler().HandleItemConsume(ctx, i); ctx.Cancelled() {
-			return
-		}
-		useCtx.CountSub, useCtx.NewItem = 1, usable.Consume(p.tx, p)
-		p.handleUseContext(useCtx)
-		p.tx.PlaySound(p.Position().Add(mgl64.Vec3{0, 1.5}), sound.Burp{})
+		p.handleConsumableClick(usable, i)
 	}
 }
 
 // ReleaseItem stops the Player using the held item. For items implementing item.Releasable, it also performs
 // their release action.
 // If the Player is not currently using any item, ReleaseItem returns immediately.
-// ReleaseItem either aborts the using of the item or finished it, depending on the time that elapsed since
-// the item started being used.
+// Food release cancels the meal. Its completion belongs to an item-use click,
+// independently of a bow's elapsed charge time.
 func (p *Player) ReleaseItem() {
+	p.ValidateHeldItemUse()
 	if !p.usingItem {
 		return
 	}
+	if !p.consumableUse.stack.Empty() {
+		p.CancelItemUse()
+		return
+	}
 	p.usingItem = false
-	// Consumables and cancelled release handlers must also clear the client's using flag, so a rapid
-	// restart is acknowledged as a new use instead of leaving the client in the previous use state.
+	p.clearConsumableUse()
+	// PATCH (Velaris): Consumables and cancelled release handlers must also clear the client's using
+	// flag, so a rapid restart is acknowledged as a new use rather than leaving the previous use state.
 	defer p.updateState()
 	if !p.canRelease() || !p.GameMode().AllowsInteraction() {
 		return
@@ -1940,6 +1935,7 @@ func (p *Player) UsingItem() bool {
 // returns immediately.
 // UseItemOnBlock does nothing if the block at the cube.Pos passed is of the type block.Air.
 func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec3) {
+	p.CancelItemUse()
 	if _, ok := p.tx.Block(pos).(block.Air); ok || !p.canReach(pos.Vec3Centre()) {
 		// The client used its item on a block that does not exist server-side or one it couldn't reach. Stop trying
 		// to use the item immediately.
@@ -2888,6 +2884,7 @@ func (p *Player) Tick(tx *world.Tx, current int64) {
 	p.effects.Tick(p, p.tx)
 
 	p.tickFood()
+	p.tickConsumableUse()
 	p.tickAirSupply()
 
 	if p.Position()[1] < float64(p.tx.Range()[0]) {
@@ -3032,15 +3029,22 @@ func (p *Player) tickAirSupply() {
 // tickFood ticks food related functionality, such as the depletion of the food bar and regeneration if it
 // is full enough.
 func (p *Player) tickFood() {
-	if p.hunger.foodTick%10 == 0 && p.tx.World().Difficulty().FoodRegenerates() {
-		p.AddFood(1)
+	p.hunger.foodTick++
+	if p.hunger.foodTick >= 80 {
+		p.hunger.foodTick = 0
+	}
+	peaceful := p.tx.World().Difficulty().FoodRegenerates()
+	if peaceful && p.hunger.foodTick%10 == 0 {
+		if p.Food() < 20 {
+			p.AddFood(1)
+		}
 		if p.hunger.foodTick%20 == 0 {
 			p.regenerate(false)
 		}
 	}
-	if p.hunger.foodTick == 1 {
+	if p.hunger.foodTick == 0 {
 		if p.hunger.canRegenerate() {
-			p.regenerate(!p.tx.World().Difficulty().FoodRegenerates())
+			p.regenerate(!peaceful)
 		} else if p.hunger.starving() {
 			p.starve()
 		}
@@ -3048,11 +3052,6 @@ func (p *Player) tickFood() {
 
 	if !p.hunger.canSprint() {
 		p.StopSprinting()
-	}
-
-	p.hunger.foodTick++
-	if p.hunger.foodTick > 80 {
-		p.hunger.foodTick = 1
 	}
 }
 

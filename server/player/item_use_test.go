@@ -28,38 +28,40 @@ func TestCancelledFoodUseSynchronisesBeforeImmediateRestart(t *testing.T) {
 			t.Fatal("cancelled food is still in use")
 		}
 		p.UseItem()
-		p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
 		p.UseItem()
 		held, _ := p.HeldItems()
 		if held.Count() != 1 || p.Food() != 14 {
 			t.Fatalf("restarted eating = count:%d food:%d, want count:1 food:14", held.Count(), p.Food())
 		}
-		assertItemUseStates(t, conn, []bool{true, false, true})
+		assertItemUseStates(t, conn, []bool{true, false, true, false})
 	})
 }
 
-func TestRapidFoodRestartsRequireFullConsumeDuration(t *testing.T) {
+func TestFoodCompletionUsesActiveCycleInsteadOfElapsedTime(t *testing.T) {
 	withStateTestPlayer(t, func(p *Player, conn *stateConn) {
 		p.SetFood(10)
 		p.SetHeldItems(item.NewStack(item.Apple{}, 2), item.Stack{})
 		for range 3 {
 			p.UseItem()
-			p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
 			p.ReleaseItem()
 		}
 		p.UseItem()
 		p.UseItem()
 		held, _ := p.HeldItems()
-		if held.Count() != 2 || p.Food() != 10 {
-			t.Fatalf("rapid clicks consumed food early: count:%d food:%d", held.Count(), p.Food())
+		if held.Count() != 1 || p.Food() != 14 || p.UsingItem() {
+			t.Fatalf("completed eating = count:%d food:%d using:%v, want count:1 food:14 using:false", held.Count(), p.Food(), p.UsingItem())
 		}
-		p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
 		p.UseItem()
 		held, _ = p.HeldItems()
-		if held.Count() != 1 || p.Food() != 14 {
-			t.Fatalf("completed eating = count:%d food:%d, want count:1 food:14", held.Count(), p.Food())
+		if held.Count() != 1 || p.Food() != 14 || !p.UsingItem() {
+			t.Fatal("next meal must start a separate cycle without consuming")
 		}
-		assertItemUseStates(t, conn, []bool{true, false, true, false, true, false, true})
+		p.UseItem()
+		held, _ = p.HeldItems()
+		if !held.Empty() || p.Food() != 18 || p.UsingItem() {
+			t.Fatalf("second completion = count:%d food:%d using:%v, want count:0 food:18 using:false", held.Count(), p.Food(), p.UsingItem())
+		}
+		assertItemUseStates(t, conn, []bool{true, false, true, false, true, false, true, false, true, false})
 	})
 }
 

@@ -136,7 +136,7 @@ func fillDefaults(conf Config) Config {
 		conf.Armour = inventory.NewArmour(nil)
 	}
 	if conf.Food == 0 && conf.FoodTick == 0 && conf.Exhaustion == 0 && conf.Saturation == 0 {
-		conf.Food, conf.Saturation = 20, 5
+		conf.Food, conf.Saturation = 20, 20
 	}
 	if conf.EnchantmentSeed == 0 {
 		conf.EnchantmentSeed = rand.Int64()

@@ -16,7 +16,7 @@ type hungerManager struct {
 // newHungerManager returns a new hunger manager with the default values for food level, saturation level and
 // exhaustion level.
 func newHungerManager() *hungerManager {
-	return &hungerManager{foodLevel: 20, saturationLevel: 5, foodTick: 1}
+	return &hungerManager{foodLevel: 20, saturationLevel: 20}
 }
 
 // Food returns the current food level of a player. The level returned is guaranteed to always be between 0
@@ -33,7 +33,20 @@ func (m *hungerManager) SetFood(level int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.foodLevel = max(min(level, 20), 0)
+	m.setFood(level)
+}
+
+// setFood updates food and the healing cadence while mu is held. PM resets
+// the timer only when food crosses a regeneration, sprinting or starvation band.
+func (m *hungerManager) setFood(level int) {
+	level = max(min(level, 20), 0)
+	for _, bound := range [...]int{17, 6, 0} {
+		if (m.foodLevel > bound) != (level > bound) {
+			m.foodTick = 0
+			break
+		}
+	}
+	m.foodLevel = level
 }
 
 // AddFood adds a number of food points to the current food level of a player.
@@ -41,7 +54,7 @@ func (m *hungerManager) AddFood(points int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.foodLevel = max(min(m.foodLevel+points, 20), 0)
+	m.setFood(m.foodLevel + points)
 }
 
 // Reset resets the hunger manager to its default values, identical to those set when creating a new manager
@@ -51,19 +64,20 @@ func (m *hungerManager) Reset() {
 	defer m.mu.Unlock()
 
 	m.foodLevel = 20
-	m.saturationLevel = 5
+	m.saturationLevel = 20
 	m.exhaustionLevel = 0
-	m.foodTick = 1
+	m.foodTick = 0
 }
 
-// ResetExhaustion resets the player's exhaustion level to 0. It prevents the
-// player's food level from decreasing immediately after cancelling food loss.
-func (m *hungerManager) resetExhaustion() {
+// resetExhaustion clears cancelled food loss without restarting natural healing.
+// foodTick is the cadence before the attempted loss, including any band changes
+// that exhaustion provisionally caused before the handler cancelled it.
+func (m *hungerManager) resetExhaustion(foodTick int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.exhaustionLevel = 0
 	m.saturationLevel = 0
-	m.foodTick = 1
+	m.foodTick = foodTick
 }
 
 // exhaust exhausts the player by the amount of points passed. If the total exhaustion level exceeds 4, a
@@ -82,13 +96,13 @@ func (m *hungerManager) exhaust(points float64) {
 }
 
 // saturate saturates the player's food and saturation by the amount of points passed. Note that the total
-// saturation will never exceed the total food value.
+// saturation will never exceed 20, independently of the current food value.
 func (m *hungerManager) saturate(food int, saturation float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.foodLevel = max(min(m.foodLevel+food, 20), 0)
-	m.saturationLevel = max(min(m.saturationLevel+saturation, float64(m.foodLevel)), 0)
+	m.setFood(m.foodLevel + food)
+	m.saturationLevel = max(min(m.saturationLevel+saturation, 20), 0)
 }
 
 // desaturate removes one saturation point from the player. If the saturation level of the player is already
@@ -96,7 +110,7 @@ func (m *hungerManager) saturate(food int, saturation float64) {
 // happen.
 func (m *hungerManager) desaturate() {
 	if m.saturationLevel <= 0 && m.foodLevel != 0 {
-		m.foodLevel--
+		m.setFood(m.foodLevel - 1)
 	} else if m.saturationLevel > 0 {
 		m.saturationLevel = max(m.saturationLevel-1, 0)
 	}

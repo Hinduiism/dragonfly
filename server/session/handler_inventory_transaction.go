@@ -197,11 +197,8 @@ func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.Us
 		defer s.swingingArm.Store(false)
 	}
 
-	// We reset the inventory so that we can send the held item update without the client already
-	// having done that client-side.
-	// Because of the new inventory system, the client will expect a transaction confirmation, but instead of doing that
-	// it's much easier to just resend the inventory.
-	h.resendInventories(s)
+	// Correct prediction from the result, not the pre-consumption stack.
+	defer h.resendInventories(s)
 
 	switch data.ActionType {
 	case protocol.UseItemActionBreakBlock:

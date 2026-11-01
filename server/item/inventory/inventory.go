@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/df-mc/dragonfly/server/item"
 	"math"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -16,10 +17,11 @@ import (
 // an inventory is invalid. Use New() to obtain a new inventory.
 // Inventory is safe for concurrent usage: Its values are protected by a mutex.
 type Inventory struct {
-	mu       sync.RWMutex
-	h        Handler
-	slots    []item.Stack
-	revision uint64
+	mu            sync.RWMutex
+	h             Handler
+	slots         []item.Stack
+	revision      uint64
+	slotRevisions []uint64
 
 	f         SlotFunc
 	validator SlotValidatorFunc
@@ -46,7 +48,7 @@ func New(size int, f SlotFunc) *Inventory {
 	if f == nil {
 		f = func(slot int, before, after item.Stack) {}
 	}
-	return &Inventory{h: NopHandler{}, slots: make([]item.Stack, size), f: f, validator: func(s item.Stack, slot int) bool { return true }}
+	return &Inventory{h: NopHandler{}, slots: make([]item.Stack, size), slotRevisions: make([]uint64, size), f: f, validator: func(s item.Stack, slot int) bool { return true }}
 }
 
 // Clone copies an Inventory and returns it, calling the SlotFunc passed for any
@@ -55,7 +57,8 @@ func (inv *Inventory) Clone(f SlotFunc) *Inventory {
 	if f == nil {
 		f = func(slot int, before, after item.Stack) {}
 	}
-	return &Inventory{h: NopHandler{}, slots: inv.Slots(), f: f, validator: func(s item.Stack, slot int) bool { return true }}
+	slots := inv.Slots()
+	return &Inventory{h: NopHandler{}, slots: slots, slotRevisions: make([]uint64, len(slots)), f: f, validator: func(s item.Stack, slot int) bool { return true }}
 }
 
 // SlotFunc changes the function called when a slot in the inventory is changed.
@@ -85,6 +88,18 @@ func (inv *Inventory) Item(slot int) (item.Stack, error) {
 		return item.Stack{}, ErrSlotOutOfRange
 	}
 	return inv.slots[slot], nil
+}
+
+// SlotRevision identifies the logical stack in a slot. Replacements and swaps
+// advance it; additive pickup into the existing stack does not.
+func (inv *Inventory) SlotRevision(slot int) (uint64, error) {
+	inv.mu.RLock()
+	defer inv.mu.RUnlock()
+	inv.check()
+	if !inv.validSlot(slot) {
+		return 0, ErrSlotOutOfRange
+	}
+	return inv.slotRevisions[slot], nil
 }
 
 // SetItem sets a stack of items to a specific slot in the inventory. If an item is already present in the
@@ -176,7 +191,11 @@ func (inv *Inventory) Swap(slotA, slotB int) error {
 		return ErrSlotOutOfRange
 	}
 	a, b := inv.slots[slotA], inv.slots[slotB]
-	fa, fb := inv.setItem(slotA, b), inv.setItem(slotB, a)
+	mutation := slotReplacement
+	if slotA != slotB {
+		mutation = slotSwap
+	}
+	fa, fb := inv.setItemMutation(slotA, b, mutation), inv.setItemMutation(slotB, a, mutation)
 
 	inv.mu.Unlock()
 
@@ -213,7 +232,7 @@ func (inv *Inventory) AddItem(it item.Stack) (n int, err error) {
 			// Count stayed the same, meaning this slot either wasn't equal to this stack or was max size.
 			continue
 		}
-		f := inv.setItem(slot, a)
+		f := inv.setItemMutation(slot, a, slotAdditiveMerge)
 		//noinspection GoDeferInLoop
 		defer f()
 
@@ -380,6 +399,18 @@ func (inv *Inventory) Handler() Handler {
 // setItem sets an item to a specific slot and overwrites the existing item. It calls the function which is
 // called for every item change and does so without locking the inventory.
 func (inv *Inventory) setItem(slot int, it item.Stack) func() {
+	return inv.setItemMutation(slot, it, slotReplacement)
+}
+
+type slotMutation uint8
+
+const (
+	slotReplacement slotMutation = iota
+	slotAdditiveMerge
+	slotSwap
+)
+
+func (inv *Inventory) setItemMutation(slot int, it item.Stack, mutation slotMutation) func() {
 	if !inv.validator(it, slot) {
 		return func() {}
 	}
@@ -387,6 +418,9 @@ func (inv *Inventory) setItem(slot int, it item.Stack) func() {
 		it = it.Grow(it.MaxCount() - it.Count())
 	}
 	before := inv.slots[slot]
+	if mutation == slotSwap || (mutation != slotAdditiveMerge && !reflect.DeepEqual(before, it)) {
+		inv.slotRevisions[slot]++
+	}
 	inv.slots[slot] = it
 	inv.revision++
 	return func() {

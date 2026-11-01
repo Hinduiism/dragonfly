@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl32"
 	"github.com/go-gl/mathgl/mgl64"
@@ -184,24 +183,10 @@ func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.InputFlags, s *S
 
 // handleUseItemData handles the protocol.UseItemTransactionData found in a packet.PlayerAuthInput.
 func (h PlayerAuthInputHandler) handleUseItemData(data protocol.UseItemTransactionData, s *Session, c Controllable) error {
-	s.swingingArm.Store(true)
-	defer s.swingingArm.Store(false)
-
-	held, _ := c.HeldItems()
-	if !held.Equal(stackToItem(s.br, data.HeldItem.Stack)) {
-		s.conf.Log.Debug("process packet: PlayerAuthInput: UseItemTransaction: mismatch between actual held item and client held item")
-		return nil
+	if err := s.VerifyAndSetHeldSlot(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); err != nil {
+		return err
 	}
-	pos := cube.Pos{int(data.BlockPosition[0]), int(data.BlockPosition[1]), int(data.BlockPosition[2])}
-
-	// Seems like this is only used for breaking blocks at the moment.
-	switch data.ActionType {
-	case protocol.UseItemActionBreakBlock:
-		c.BreakBlock(pos)
-	default:
-		return fmt.Errorf("unhandled UseItem ActionType for PlayerAuthInput packet %v", data.ActionType)
-	}
-	return nil
+	return (&InventoryTransactionHandler{}).handleUseItemTransaction(&data, s, c)
 }
 
 // handleBlockActions handles a slice of protocol.PlayerBlockAction present in a PlayerAuthInput packet.
