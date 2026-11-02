@@ -30,3 +30,20 @@ func TestListenerProtocolsArePerConfig(t *testing.T) {
 		t.Fatal("native-only default registers additional protocols")
 	}
 }
+
+func TestRakNetBindOverridesPanelManagedAddress(t *testing.T) {
+	uc := DefaultConfig()
+	uc.Network.Address = "invalid-primary-address"
+	uc.Network.RakNetBind = "127.0.0.1:0"
+	listener, err := uc.rakNetListenerFunc(Config{Log: slog.Default(), Allower: allower{}})
+	if err != nil {
+		t.Fatalf("RakNet used the panel's primary address instead of its explicit bind: %v", err)
+	}
+	_ = listener.Close()
+	uc.Network.Address, uc.Network.RakNetBind = "127.0.0.1:0", ""
+	listener, err = uc.rakNetListenerFunc(Config{Log: slog.Default(), Allower: allower{}})
+	if err != nil {
+		t.Fatalf("empty override changed the default bind behavior: %v", err)
+	}
+	_ = listener.Close()
+}

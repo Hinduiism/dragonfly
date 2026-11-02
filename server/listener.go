@@ -137,9 +137,13 @@ func netherNetKey(path string, log *slog.Logger) (*ecdsa.PrivateKey, error) {
 }
 
 // rakNetListenerFunc returns a Listener accepting RakNet connections on
-// UserConfig.Network.Address. It is the default transport of UserConfig.Config.
+// UserConfig.Network.RakNetBind or Address. It is the default transport.
 func (uc UserConfig) rakNetListenerFunc(conf Config) (Listener, error) {
-	l, err := listenerConfig(conf).Listen("raknet", uc.Network.Address)
+	address := uc.Network.RakNetBind
+	if address == "" {
+		address = uc.Network.Address
+	}
+	l, err := listenerConfig(conf).Listen("raknet", address)
 	if err != nil {
 		return nil, fmt.Errorf("create RakNet listener: %w", err)
 	}

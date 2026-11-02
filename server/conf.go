@@ -250,6 +250,10 @@ type UserConfig struct {
 		// Address is the address on which the server should listen. Players may
 		// connect to this address in order to join.
 		Address string
+		// RakNetBind overrides the RakNet UDP bind address. If empty, Address
+		// is used. This allows a separate RakNet port when a hosting panel
+		// manages Address as the primary NetherNet signaling/game port.
+		RakNetBind string
 		// Transport lists the network transports listened on, "raknet" and/or
 		// "nethernet". If empty, only RakNet is used. Custom transports are added
 		// programmatically through Config.Listeners.
