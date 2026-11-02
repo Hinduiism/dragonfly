@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -428,6 +429,7 @@ func logHTTPRequests(log *slog.Logger, next http.Handler) http.Handler {
 
 func listenerConfig(conf Config) minecraft.ListenConfig {
 	cfg := minecraft.ListenConfig{
+		AcceptedProtocols:      slices.Clone(conf.AcceptedProtocols),
 		MaximumPlayers:         conf.MaxPlayers,
 		StatusProvider:         conf.StatusProvider,
 		AuthenticationDisabled: conf.AuthDisabled,

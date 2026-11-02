@@ -37,6 +37,9 @@ type Config struct {
 	// for each Listener to be added to the Server. If left empty, no players
 	// will be able to connect to the Server.
 	Listeners []func(conf Config) (Listener, error)
+	// AcceptedProtocols are additional protocols accepted by each built-in
+	// listener. Gophertunnel always accepts its native protocol independently.
+	AcceptedProtocols []minecraft.Protocol
 	// Name is the name of the server. By default, it is shown to users in the
 	// server list before joining the server and when opening the in-game menu.
 	Name string
@@ -53,6 +56,9 @@ type Config struct {
 	// produces a resource pack for custom items. If this is not desired (for
 	// example if a resource pack already exists), this can be set to false.
 	DisableResourceBuilding bool
+	// ResourcePackMinimumGameVersion is the minimum engine version declared by
+	// the generated custom-content pack. Zero uses the native game version.
+	ResourcePackMinimumGameVersion [3]int
 	// Allower may be used to specify what players can join the server and what
 	// players cannot. By returning false in the Allow method, for example if
 	// the player has been banned, will prevent the player from joining.
@@ -198,12 +204,13 @@ func (conf Config) New() *Server {
 	world.DefaultBlockRegistry.Finalize()
 
 	if !conf.DisableResourceBuilding {
-		if pack, ok := packbuilder.BuildResourcePack(conf.Blocks); ok {
+		if pack, ok := packbuilder.BuildResourcePack(conf.Blocks, conf.ResourcePackMinimumGameVersion); ok {
 			conf.Resources = append(conf.Resources, pack)
 		}
 	}
 	// Copy resources so that the slice can't be edited afterward.
 	conf.Resources = slices.Clone(conf.Resources)
+	conf.AcceptedProtocols = slices.Clone(conf.AcceptedProtocols)
 
 	srv := &Server{
 		conf:     conf,
