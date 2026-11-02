@@ -295,7 +295,7 @@ func (s *Session) SetPlayerListSkin(value skin.Skin) {
 func (s *Session) Spawn(c Controllable, tx *world.Tx) {
 	s.SendHealth(c.Health(), c.MaxHealth(), c.Absorption())
 	s.SendExperience(c.ExperienceLevel(), c.ExperienceProgress())
-	s.SendFood(c.Food(), 0, 0)
+	s.syncFood(c)
 
 	pos := c.Position()
 	if s.applyChunkRadius(s.requestedChunkRadius, tx.World()) {

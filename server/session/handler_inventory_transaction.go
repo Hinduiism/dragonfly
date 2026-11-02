@@ -64,14 +64,11 @@ func (h *InventoryTransactionHandler) Handle(p packet.Packet, s *Session, tx *wo
 		if data.Hand != protocol.HandSlotMainHand {
 			return fmt.Errorf("invalid hand %d in entity interaction", data.Hand)
 		}
-		if err = s.VerifyAndSetHeldSlot(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); err != nil {
-			return
+		if valid, verifyErr := s.VerifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); verifyErr != nil || !valid {
+			return verifyErr
 		}
 		return h.handleUseItemOnEntityTransaction(data, s, tx, c)
 	case *protocol.UseItemTransactionData:
-		if err = s.VerifyAndSetHeldSlot(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); err != nil {
-			return
-		}
 		return h.handleUseItemTransaction(data, s, c)
 	case *protocol.ReleaseItemTransactionData:
 		if data.Hand == protocol.HandSlotOffHand {
@@ -81,8 +78,8 @@ func (h *InventoryTransactionHandler) Handle(p packet.Packet, s *Session, tx *wo
 		if data.Hand != protocol.HandSlotMainHand {
 			return fmt.Errorf("invalid hand %d in item release", data.Hand)
 		}
-		if err = s.VerifyAndSetHeldSlot(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); err != nil {
-			return
+		if valid, verifyErr := s.VerifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); verifyErr != nil || !valid {
+			return verifyErr
 		}
 		return h.handleReleaseItemTransaction(c)
 	}
@@ -190,6 +187,18 @@ func (h *InventoryTransactionHandler) handleUseItemOnEntityTransaction(data *pro
 
 // handleUseItemTransaction ...
 func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.UseItemTransactionData, s *Session, c Controllable) error {
+	if data.Hand == protocol.HandSlotOffHand {
+		h.resendInventories(s)
+		return nil
+	}
+	if data.Hand != protocol.HandSlotMainHand {
+		return fmt.Errorf("invalid hand %d in item use", data.Hand)
+	}
+	// Any ClickAir may finish an active meal, regardless of its input origin.
+	completion := data.ActionType == protocol.UseItemActionClickAir
+	if valid, err := s.verifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c, completion); err != nil || !valid {
+		return err
+	}
 	pos := cube.Pos{int(data.BlockPosition[0]), int(data.BlockPosition[1]), int(data.BlockPosition[2])}
 	if data.ClientPrediction == protocol.ClientPredictionSuccess || data.ActionType == protocol.UseItemActionBreakBlock {
 		// Suppress echoing the swing animation only when the client has already predicted it locally.
@@ -206,7 +215,11 @@ func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.Us
 	case protocol.UseItemActionClickBlock:
 		c.UseItemOnBlock(pos, cube.Face(data.BlockFace), vec32To64(data.ClickedPosition))
 	case protocol.UseItemActionClickAir:
-		c.UseItem()
+		if user, ok := c.(interface{ UseItemWithTrigger(uint32) }); ok {
+			user.UseItemWithTrigger(data.TriggerType)
+		} else {
+			c.UseItem()
+		}
 	default:
 		return fmt.Errorf("unhandled UseItem ActionType %v", data.ActionType)
 	}

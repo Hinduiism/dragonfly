@@ -235,3 +235,49 @@ func assertStackEqual(t *testing.T, inv *inventory.Inventory, slot int, want ite
 		t.Fatalf("slot %d = %v, want %v", slot, got, want)
 	}
 }
+
+func TestRejectedRequestRestoresOriginalPhysicalSlots(t *testing.T) {
+	for _, aliases := range []bool{false, true} {
+		t.Run(map[bool]string{false: "same container", true: "aliased containers"}[aliases], func(t *testing.T) {
+			inv := inventory.New(36, nil)
+			original := item.NewStack(item.GoldenApple{}, 10)
+			_ = inv.SetItem(0, original)
+			s := &Session{inv: inv, packets: make(chan packet.Packet, 4)}
+			h := &ItemStackRequestHandler{changes: map[byte]map[byte]changeInfo{}, responseChanges: map[int32]map[*inventory.Inventory]map[byte]responseChange{}}
+			slot := func(index byte) protocol.StackRequestSlotInfo {
+				return protocol.StackRequestSlotInfo{Container: protocol.FullContainerName{ContainerID: protocol.ContainerInventory}, Slot: index}
+			}
+			source := slot(0)
+			source.StackNetworkID = item_id(original)
+			first := &protocol.TakeStackRequestAction{}
+			first.Count, first.Source, first.Destination = 2, source, slot(1)
+			middle := slot(1)
+			middle.StackNetworkID = -1
+			if aliases {
+				middle.Container.ContainerID = protocol.ContainerHotBar
+			}
+			second := &protocol.TakeStackRequestAction{}
+			second.Count, second.Source, second.Destination = 1, middle, slot(2)
+			stale := slot(3)
+			stale.StackNetworkID = 123456
+			request := protocol.ItemStackRequest{RequestID: -1, Actions: []protocol.StackRequestAction{
+				first, second, &protocol.SwapStackRequestAction{Source: stale, Destination: slot(4)},
+			}}
+			if err := h.handleRequest(request, s, nil, nil); err == nil {
+				t.Fatal("stale third action was accepted")
+			}
+			a, _ := inv.Item(0)
+			b, _ := inv.Item(1)
+			c, _ := inv.Item(2)
+			if !a.Equal(original) || !b.Empty() || !c.Empty() {
+				t.Fatalf("rollback = (%d,%d,%d), want (10,0,0)", a.Count(), b.Count(), c.Count())
+			}
+			if _, exists := h.responseChanges[-1]; exists {
+				t.Fatal("rejected request IDs remain usable as predictions")
+			}
+			if len(h.originals) != 0 || len(h.changes) != 0 || h.ignoreDestroy {
+				t.Fatal("per-request state survived rejection")
+			}
+		})
+	}
+}

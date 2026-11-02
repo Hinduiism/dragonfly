@@ -410,6 +410,10 @@ func (tx *Tx) deferTask(f func(tx *Tx) error) *Task {
 	return task
 }
 
+// Closed reports whether the transaction has finished. Like other transaction
+// state, it must only be inspected by its owning callback.
+func (tx *Tx) Closed() bool { return tx.closed }
+
 // World returns the Tx's World. It panics once the callback has
 // completed. Treat the result as the off-owner handle: blocking calls like
 // Save and Close deadlock from inside the callback, so do world operations

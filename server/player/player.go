@@ -37,6 +37,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"golang.org/x/text/language"
 )
 
@@ -968,7 +969,15 @@ func (p *Player) Saturate(food int, saturation float64) {
 
 // sendFood sends the current food properties to the client.
 func (p *Player) sendFood() {
-	p.session().SendFood(p.hunger.foodLevel, p.hunger.saturationLevel, p.hunger.exhaustionLevel)
+	food, saturation, exhaustion := p.FoodStats()
+	p.session().SendFood(food, saturation, exhaustion)
+}
+
+// FoodStats returns one authoritative snapshot of hunger attributes.
+func (p *Player) FoodStats() (int, float64, float64) {
+	p.hunger.mu.RLock()
+	defer p.hunger.mu.RUnlock()
+	return p.hunger.foodLevel, p.hunger.saturationLevel, p.hunger.exhaustionLevel
 }
 
 // AddEffect adds an entity.Effect to the Player. If the effect is instant, it is applied to the Player
@@ -1758,6 +1767,10 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
 func (p *Player) UseItem() {
+	p.useItem(protocol.TriggerTypeUnknown, false)
+}
+
+func (p *Player) useItem(trigger uint32, fromClient bool) {
 	p.ValidateHeldItemUse()
 	i, _ := p.HeldItems()
 	if p.Dead() || !p.GameMode().AllowsInteraction() {
@@ -1830,7 +1843,7 @@ func (p *Player) UseItem() {
 			p.rejectConsumableUse(i)
 			return
 		}
-		p.handleConsumableClick(usable, i)
+		p.handleConsumableClick(usable, i, trigger, fromClient)
 	}
 }
 

@@ -20,6 +20,7 @@ type ItemStackRequestHandler struct {
 	currentRequest int32
 
 	changes         map[byte]map[byte]changeInfo
+	originals       map[*inventory.Inventory]map[int]item.Stack
 	responseChanges map[int32]map[*inventory.Inventory]map[byte]responseChange
 
 	pendingResults []item.Stack
@@ -35,11 +36,10 @@ type responseChange struct {
 	timestamp time.Time
 }
 
-// changeInfo holds information on a slot change initiated by an item stack request. It holds both the new and the old
-// item information and is used for reverting and verifying.
+// changeInfo holds the final response for a client container/slot. Rollback
+// snapshots are keyed by physical inventory/slot in originals.
 type changeInfo struct {
-	after  protocol.StackResponseSlotInfo
-	before item.Stack
+	after protocol.StackResponseSlotInfo
 }
 
 // Handle ...
@@ -64,6 +64,7 @@ func (h *ItemStackRequestHandler) Handle(p packet.Packet, s *Session, tx *world.
 func (h *ItemStackRequestHandler) handleRequest(req protocol.ItemStackRequest, s *Session, tx *world.Tx, c Controllable) (err error) {
 	h.currentRequest = req.RequestID
 	defer func() {
+		defer func() { h.originals = nil; h.ignoreDestroy = false }()
 		if err != nil {
 			h.reject(req.RequestID, s, tx)
 			return
@@ -73,7 +74,6 @@ func (h *ItemStackRequestHandler) handleRequest(req protocol.ItemStackRequest, s
 		if publish {
 			s.publishVirtualContainerRequest(tx, state, event)
 		}
-		h.ignoreDestroy = false
 	}()
 
 	for _, action := range req.Actions {
@@ -441,6 +441,17 @@ func (h *ItemStackRequestHandler) setItemInSlot(slot protocol.StackRequestSlotIn
 	}
 
 	before, _ := inv.Item(sl)
+	// Container aliases can refer to the same physical slot. Capture its
+	// original contents once for the entire request, before any mutation.
+	if h.originals == nil {
+		h.originals = map[*inventory.Inventory]map[int]item.Stack{}
+	}
+	if h.originals[inv] == nil {
+		h.originals[inv] = map[int]item.Stack{}
+	}
+	if _, exists := h.originals[inv][sl]; !exists {
+		h.originals[inv][sl] = before
+	}
 	_ = inv.SetItem(sl, i)
 
 	respSlot := protocol.StackResponseSlotInfo{
@@ -454,12 +465,8 @@ func (h *ItemStackRequestHandler) setItemInSlot(slot protocol.StackRequestSlotIn
 	if h.changes[slot.Container.ContainerID] == nil {
 		h.changes[slot.Container.ContainerID] = map[byte]changeInfo{}
 	}
-	if previous, ok := h.changes[slot.Container.ContainerID][slot.Slot]; ok {
-		before = previous.before
-	}
 	h.changes[slot.Container.ContainerID][slot.Slot] = changeInfo{
-		after:  respSlot,
-		before: before,
+		after: respSlot,
 	}
 
 	if h.responseChanges[h.currentRequest] == nil {
@@ -507,12 +514,12 @@ func (h *ItemStackRequestHandler) reject(id int32, s *Session, tx *world.Tx) {
 	})
 
 	// Revert changes that we already made for valid actions.
-	for container, slots := range h.changes {
-		for slot, info := range slots {
-			inv, _ := s.invByID(int32(container), tx)
-			_ = inv.SetItem(int(slot), info.before)
+	for inv, slots := range h.originals {
+		for slot, original := range slots {
+			_ = inv.SetItem(slot, original)
 		}
 	}
+	delete(h.responseChanges, id)
 
 	h.changes = map[byte]map[byte]changeInfo{}
 	h.pendingResults = nil

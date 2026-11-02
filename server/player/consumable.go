@@ -7,6 +7,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 )
 
 // consumableUseState binds a meal to one world, slot and logical stack.
@@ -16,6 +17,8 @@ type consumableUseState struct {
 	world                *world.World
 	revision, generation uint64
 	committing, applying bool
+	completionRequested  bool
+	lastActivity         time.Time
 }
 
 func (p *Player) clearConsumableUse() {
@@ -77,24 +80,52 @@ func (p *Player) ValidateHeldItemUse() {
 	}
 }
 
-func (p *Player) handleConsumableClick(food item.Consumable, held item.Stack) {
+// UseItemWithTrigger retains the input origin, which is not a meal phase.
+// Unknown can start use, and PlayerInput can finish an active meal.
+func (p *Player) UseItemWithTrigger(trigger uint32) { p.useItem(trigger, true) }
+
+// CanCompleteConsumableUse permits count-zero prediction for the last food
+// only when the referenced slot still belongs to an active, valid meal.
+func (p *Player) CanCompleteConsumableUse(slot int) bool {
+	p.ValidateHeldItemUse()
+	return p.usingItem && !p.consumableUse.stack.Empty() && p.consumableUse.slot == slot && !p.consumableUse.committing
+}
+
+func (p *Player) handleConsumableClick(food item.Consumable, held item.Stack, trigger uint32, fromClient bool) {
 	if held.Empty() {
 		return
 	}
 	if !p.usingItem || p.consumableUse.stack.Empty() {
+		// A simulation-only repeat cannot begin a meal after cancellation.
+		// Unknown describes neither a start nor a finish, so allow it to start.
+		if fromClient && trigger != protocol.TriggerTypePlayerInput && trigger != protocol.TriggerTypeUnknown {
+			p.rejectConsumableUse(held)
+			return
+		}
 		p.clearConsumableUse()
 		p.consumableUse.stack, p.consumableUse.slot = held, int(*p.heldSlot)
 		p.consumableUse.world = p.tx.World()
 		p.consumableUse.revision, _ = p.inv.SlotRevision(int(*p.heldSlot))
+		p.consumableUse.lastActivity = time.Now()
 		p.usingItem, p.usingSince = true, time.Now()
 		p.updateState()
+		return
+	}
+	if fromClient && trigger != protocol.TriggerTypePlayerInput && trigger != protocol.TriggerTypeSimulationTick && trigger != protocol.TriggerTypeUnknown {
+		p.rejectConsumableUse(held)
+		return
+	}
+	p.consumableUse.lastActivity = time.Now()
+	p.consumableUse.completionRequested = true
+	// Keep an early completion compressed by network jitter until the server's
+	// use duration is met. Release or invalidation still cancels this request.
+	if p.useDuration() < food.ConsumeDuration() {
 		return
 	}
 	p.consumeItem(food)
 }
 
-// consumeItem follows PM's completion-click model. No timer or pending retry
-// can reject or outlive the input that requested this meal.
+// consumeItem applies a validated meal once, against its original inventory.
 func (p *Player) consumeItem(food item.Consumable) {
 	p.ValidateHeldItemUse()
 	if !p.usingItem || p.consumableUse.stack.Empty() || p.consumableUse.committing {
@@ -125,14 +156,21 @@ func (p *Player) consumeItem(food item.Consumable) {
 		p.CancelItemUse()
 		return
 	}
-	useCtx := p.useContext()
-	useCtx.CountSub, useCtx.NewItem = 1, food.Consume(p.tx, p)
+	// Effects may kill the player or replace their inventory. Deduct from the
+	// validated stack before applying them, never from the later inventory.
 	p.consumableUse.applying = true
-	p.handleUseContext(useCtx)
-	p.consumableUse.applying = false
+	_, offHand := p.HeldItems()
+	p.SetHeldItems(p.subtractItem(current, 1), offHand)
 	p.usingItem = false
 	p.clearConsumableUse()
 	p.updateState()
+	residue := food.Consume(p.tx, p)
+	if p.Dead() || p.tx.Closed() || p.tx.World() != use.world || !p.GameMode().AllowsInteraction() {
+		return
+	}
+	useCtx := p.useContext()
+	useCtx.NewItem = residue
+	p.addNewItem(useCtx)
 	p.tx.PlaySound(p.Position().Add(mgl64.Vec3{0, 1.5}), sound.Burp{})
 }
 
@@ -147,9 +185,13 @@ func (p *Player) tickConsumableUse() {
 		p.CancelItemUse()
 		return
 	}
+	if p.consumableUse.completionRequested && p.useDuration() >= food.ConsumeDuration() {
+		p.consumeItem(food)
+		return
+	}
 	// Recovery for abandoned input, independent of normal food completion.
 	idle := min(time.Minute, max(10*time.Second, food.ConsumeDuration()+4*p.Latency()))
-	if time.Since(p.usingSince) > idle {
+	if time.Since(p.consumableUse.lastActivity) > idle {
 		p.CancelItemUse()
 	}
 }

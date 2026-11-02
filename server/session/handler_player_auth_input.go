@@ -69,10 +69,30 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 
 // handleActions handles the actions with the world that are present in the PlayerAuthInput packet.
 func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Session, tx *world.Tx, c Controllable) error {
+	stopHandled := false
 	if pk.InputData.Load(packet.InputFlagPerformItemInteraction) {
 		data, ok := pk.ItemInteractionData.Value()
 		if !ok {
 			return fmt.Errorf("item interaction flag set without item interaction data")
+		}
+		if data.TriggerType == protocol.TriggerTypeUnknown && pk.InputData.Load(packet.InputFlagStartUsingItem) {
+			data.TriggerType = protocol.TriggerTypePlayerInput
+		}
+		// An explicit fresh start may share a frame with the old press's stop.
+		// A completion without this flag must be processed before its own stop.
+		if pk.InputData.Load(packet.InputFlagStartUsingItem) && pk.InputData.Load(packet.InputFlagPerformBlockActions) {
+			actions, ok := pk.BlockActions.Value()
+			if !ok {
+				return fmt.Errorf("block actions flag set without block actions")
+			}
+			for _, action := range actions {
+				if action.Action == protocol.PlayerActionStopItemUseOn {
+					if err := handlePlayerAction(action.Action, action.Face, action.BlockPos, selfEntityRuntimeID, s, c); err != nil {
+						return err
+					}
+					stopHandled = true
+				}
+			}
 		}
 		if err := h.handleUseItemData(data, s, c); err != nil {
 			return err
@@ -82,6 +102,15 @@ func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Ses
 		actions, ok := pk.BlockActions.Value()
 		if !ok {
 			return fmt.Errorf("block actions flag set without block actions")
+		}
+		if stopHandled {
+			remaining := make([]protocol.PlayerBlockAction, 0, len(actions))
+			for _, action := range actions {
+				if action.Action != protocol.PlayerActionStopItemUseOn {
+					remaining = append(remaining, action)
+				}
+			}
+			actions = remaining
 		}
 		if err := h.handleBlockActions(actions, s, c); err != nil {
 			return err
@@ -183,9 +212,6 @@ func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.InputFlags, s *S
 
 // handleUseItemData handles the protocol.UseItemTransactionData found in a packet.PlayerAuthInput.
 func (h PlayerAuthInputHandler) handleUseItemData(data protocol.UseItemTransactionData, s *Session, c Controllable) error {
-	if err := s.VerifyAndSetHeldSlot(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); err != nil {
-		return err
-	}
 	return (&InventoryTransactionHandler{}).handleUseItemTransaction(&data, s, c)
 }
 

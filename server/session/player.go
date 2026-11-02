@@ -413,6 +413,17 @@ func (s *Session) SendSpeed(speed float64) {
 	})
 }
 
+// syncFood uses the complete authoritative player state when available.
+func (s *Session) syncFood(c Controllable) {
+	food, saturation, exhaustion := c.Food(), 0.0, 0.0
+	if source, ok := c.(interface {
+		FoodStats() (int, float64, float64)
+	}); ok {
+		food, saturation, exhaustion = source.FoodStats()
+	}
+	s.SendFood(food, saturation, exhaustion)
+}
+
 // SendFood ...
 func (s *Session) SendFood(food int, saturation, exhaustion float64) {
 	s.writePacket(&packet.UpdateAttributes{
@@ -772,6 +783,35 @@ func (s *Session) uiInventoryFunc(tx *world.Tx, c Controllable) inventory.SlotFu
 		}
 		s.sendInv(s.ui, protocol.WindowIDUI)
 	}
+}
+
+// VerifyHeldItemUse rejects a different item identity while tolerating ordinary
+// count disagreement. Equipment selection retains its existing tolerant path.
+func (s *Session) VerifyHeldItemUse(slot int, expected item.Stack, c Controllable) (bool, error) {
+	return s.verifyHeldItemUse(slot, expected, c, false)
+}
+
+func (s *Session) verifyHeldItemUse(slot int, expected item.Stack, c Controllable, foodCompletion bool) (bool, error) {
+	if slot < 0 || slot > 8 {
+		return false, fmt.Errorf("slot exceeds hotbar range 0-8: slot is %v", slot)
+	}
+	actual, _ := s.inv.Item(slot)
+	matching := actual.Empty() == expected.Empty() && actual.Comparable(expected)
+	if !matching && foodCompletion && expected.Empty() && !actual.Empty() {
+		if source, ok := c.(interface{ CanCompleteConsumableUse(int) bool }); ok {
+			matching = source.CanCompleteConsumableUse(slot)
+		}
+	}
+	if !matching {
+		if user, ok := c.(interface{ CancelItemUse() }); ok {
+			user.CancelItemUse()
+		}
+		s.sendInv(s.inv, protocol.WindowIDInventory)
+		s.SendHeldSlot(int(*s.heldSlot), c, true)
+		s.ViewEntityState(c)
+		return false, nil
+	}
+	return true, s.VerifyAndSetHeldSlot(slot, expected, c)
 }
 
 // ResendHeldItem corrects the selected stack without changing it.
