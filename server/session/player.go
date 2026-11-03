@@ -391,6 +391,7 @@ func (s *Session) Disconnect(message string) {
 	if s != Nop {
 		s.outputMu.Lock()
 		s.disconnectReason = message
+		s.disconnectRequested = true
 		s.outputMu.Unlock()
 		_ = s.conn.WritePacket(&packet.Disconnect{
 			HideDisconnectionScreen: message == "",

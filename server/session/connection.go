@@ -2,6 +2,7 @@ package session
 
 import (
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/df-mc/dragonfly/server/world"
@@ -12,6 +13,8 @@ import (
 // Connection is a read-only reference to one session. It never resolves by
 // account name or XUID and therefore cannot retarget a later login.
 type Connection struct{ s *Session }
+
+var nextConnectionID atomic.Uint64
 
 type ConnectionEndKind string
 
@@ -34,8 +37,13 @@ func (s *Session) Connection() *Connection {
 	}
 	return &Connection{s: s}
 }
-func (c *Connection) Done() <-chan struct{}            { return c.s.closeBackground }
-func (c *Connection) Handle() *world.EntityHandle      { return c.s.ent }
+func (c *Connection) ID() uint64            { return c.s.connectionID }
+func (c *Connection) Done() <-chan struct{} { return c.s.closeBackground }
+func (c *Connection) Handle() *world.EntityHandle {
+	c.s.outputMu.Lock()
+	defer c.s.outputMu.Unlock()
+	return c.s.ent
+}
 func (c *Connection) IdentityData() login.IdentityData { return c.s.conn.IdentityData() }
 func (c *Connection) ClientData() login.ClientData     { return c.s.conn.ClientData() }
 func (c *Connection) RemoteAddr() net.Addr             { return c.s.conn.RemoteAddr() }
@@ -56,7 +64,7 @@ func (s *Session) closeConnection(end ConnectionEnd) {
 	s.connOnce.Do(func() {
 		s.outputMu.Lock()
 		s.outputClosed = true
-		if s.disconnectReason != "" {
+		if s.disconnectRequested {
 			end.Kind, end.Reason = ConnectionEndServerDisconnect, s.disconnectReason
 		}
 		s.connectionEnd = end

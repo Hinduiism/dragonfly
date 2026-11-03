@@ -81,17 +81,29 @@ func (s *Session) refreshFormImages(generation uint64) {
 		if !s.formImageDelay(500 * time.Millisecond) {
 			return
 		}
-		err := s.withControllable(context.Background(), func(_ *world.Tx, c Controllable) error {
+		active := false
+		task := world.NewEntityRef[Controllable](s.ent).Do(func(_ *world.Tx, c Controllable) {
 			s.formImages.mu.Lock()
 			current := s.formImages.generation
 			s.formImages.mu.Unlock()
-			if current != generation || !s.formImagesEnabled() {
-				return context.Canceled
+			select {
+			case <-s.closeBackground:
+				return
+			default:
 			}
+			if current != generation || !s.formImagesEnabled() {
+				return
+			}
+			active = true
 			s.SendExperience(c.ExperienceLevel(), c.ExperienceProgress())
-			return nil
 		})
-		if err != nil {
+		select {
+		case <-s.closeBackground:
+			task.Cancel()
+			return
+		case <-task.Done():
+		}
+		if task.Err() != nil || !active {
 			return
 		}
 	}

@@ -37,15 +37,17 @@ type Session struct {
 	conf           Config
 	once, connOnce sync.Once
 
-	ent              *world.EntityHandle
-	conn             Conn
-	handlers         map[uint32]packetHandler
-	packets          chan packet.Packet
-	outputMu         sync.Mutex
-	outputClosed     bool
-	connectionEnd    ConnectionEnd
-	disconnectReason string
-	formImages       formImageState
+	ent                 *world.EntityHandle
+	conn                Conn
+	handlers            map[uint32]packetHandler
+	packets             chan packet.Packet
+	outputMu            sync.Mutex
+	outputClosed        bool
+	connectionEnd       ConnectionEnd
+	disconnectReason    string
+	disconnectRequested bool
+	connectionID        uint64
+	formImages          formImageState
 
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
@@ -222,6 +224,7 @@ func (conf Config) New(conn Conn) *Session {
 	*s = Session{
 		openChunkTransactions:  make([]map[uint64]struct{}, 0, 8),
 		closeBackground:        make(chan struct{}),
+		connectionID:           nextConnectionID.Add(1),
 		handlers:               map[uint32]packetHandler{},
 		packets:                make(chan packet.Packet, 256),
 		entityRuntimeIDs:       map[*world.EntityHandle]uint64{},
@@ -471,6 +474,7 @@ func (s *Session) handlePackets() {
 				return
 			}
 			s.conf.Log.Debug("process packet: " + err.Error())
+			s.closeConnection(ConnectionEnd{Kind: ConnectionEndTransport, Err: err})
 			return
 		}
 	}
