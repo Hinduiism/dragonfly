@@ -16,7 +16,9 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/player/chat"
+	"github.com/df-mc/dragonfly/server/player/form"
 	"github.com/df-mc/dragonfly/server/player/playerdb"
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/biome"
 	"github.com/df-mc/dragonfly/server/world/generator"
@@ -29,6 +31,16 @@ import (
 
 // Config contains options for starting a Minecraft server.
 type Config struct {
+	// Commands customizes command metadata and output without wrapping connections.
+	Commands session.CommandPresentation
+	// ConnectionEnded runs off-owner once the exact connection has ended.
+	ConnectionEnded func(*session.Connection, session.ConnectionEnd)
+	// ServerSettings builds Bedrock server settings on the player's world owner.
+	ServerSettings func(*world.Tx, *player.Player) form.Form
+	// FormImagesEnabled controls the acknowledged URL-image refresh workaround.
+	// A nil callback enables it. The callback must be concurrency-safe.
+	FormImagesEnabled func() bool
+
 	// Log is the Logger to use for logging information. If nil, Log is set to
 	// slog.Default(). Errors reported by the underlying network are only logged
 	// if Log has at least debug level.

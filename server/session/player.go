@@ -389,6 +389,9 @@ func (s *Session) invByID(id int32, tx *world.Tx) (*inventory.Inventory, bool) {
 // it will be shown to the client.
 func (s *Session) Disconnect(message string) {
 	if s != Nop {
+		s.outputMu.Lock()
+		s.disconnectReason = message
+		s.outputMu.Unlock()
 		_ = s.conn.WritePacket(&packet.Disconnect{
 			HideDisconnectionScreen: message == "",
 			Message:                 message,
@@ -506,7 +509,14 @@ func (s *Session) CloseDialogue() {
 // SendForm sends a form to the client of the connection. The Submit method of the form is called when the
 // client submits the form.
 func (s *Session) SendForm(f form.Form) {
-	b, _ := json.Marshal(f)
+	if s == Nop {
+		return
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		s.conf.Log.Error("encode form", "error", err)
+		return
+	}
 
 	h := s.handlers[packet.IDModalFormResponse].(*ModalFormResponseHandler)
 	id := h.currentID.Add(1)
@@ -526,11 +536,13 @@ func (s *Session) SendForm(f form.Form) {
 		FormID:   id,
 		FormData: b,
 	})
+	s.scheduleFormImages(b)
 }
 
 // CloseForm closes any forms that the player currently has open. If the player has no forms open, nothing
 // happens.
 func (s *Session) CloseForm() {
+	s.cancelFormImages()
 	s.writePacket(&packet.ClientBoundCloseForm{})
 }
 

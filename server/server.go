@@ -23,6 +23,7 @@ import (
 	_ "github.com/df-mc/dragonfly/server/item" // Imported for maintaining correct initialisation order.
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/player/chat"
+	"github.com/df-mc/dragonfly/server/player/form"
 	"github.com/df-mc/dragonfly/server/player/skin"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
@@ -583,6 +584,15 @@ func (srv *Server) createPlayer(id uuid.UUID, conn session.Conn, conf player.Con
 	srv.pwg.Add(1)
 
 	s := session.Config{
+		Commands:          srv.conf.Commands,
+		ConnectionEnded:   srv.conf.ConnectionEnded,
+		FormImagesEnabled: srv.conf.FormImagesEnabled,
+		ServerSettings: func(tx *world.Tx, c session.Controllable) form.Form {
+			if srv.conf.ServerSettings != nil {
+				return srv.conf.ServerSettings(tx, c.(*player.Player))
+			}
+			return nil
+		},
 		Log:                   srv.conf.Log,
 		MaxChunkRadius:        srv.conf.MaxChunkRadius,
 		EmoteChatMuted:        srv.conf.MuteEmoteChat,

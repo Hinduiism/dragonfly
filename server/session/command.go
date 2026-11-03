@@ -32,12 +32,16 @@ func (s *Session) SendCommandOutput(output *cmd.Output, l language.Tag) {
 		messages = append(messages, om)
 	}
 
-	s.writePacket(&packet.CommandOutput{
+	pk := &packet.CommandOutput{
 		CommandOrigin:  s.handlers[packet.IDCommandRequest].(*CommandRequestHandler).origin,
 		OutputType:     packet.CommandOutputTypeAllOutput,
 		SuccessCount:   uint32(output.MessageCount()),
 		OutputMessages: messages,
-	})
+	}
+	if s.conf.Commands.Output != nil {
+		s.conf.Commands.Output(s.ent, pk)
+	}
+	s.writePacket(pk)
 }
 
 type translation interface {
@@ -171,6 +175,9 @@ func BuildAvailableCommands(
 func (s *Session) sendAvailableCommands(co Controllable, softEnums map[string]struct{}) map[string]map[int]cmd.Runnable {
 	commands := cmd.Commands()
 	pk, m := BuildAvailableCommands(commands, co, softEnums)
+	if s.conf.Commands.Metadata != nil {
+		s.conf.Commands.Metadata(s.ent, pk)
+	}
 	s.writePacket(pk)
 	return m
 }
@@ -312,4 +319,14 @@ func (s *Session) resendEnums(
 		}
 	}
 	return r
+}
+
+// RefreshCommands rebuilds and sends the caller's commands through the same
+// presentation policy used by initial publication and automatic refreshes.
+func (s *Session) RefreshCommands(c Controllable) *Delivery {
+	pk, _ := BuildAvailableCommands(cmd.Commands(), c, nil)
+	if s.conf.Commands.Metadata != nil {
+		s.conf.Commands.Metadata(s.ent, pk)
+	}
+	return s.queueDelivery(pk)
 }

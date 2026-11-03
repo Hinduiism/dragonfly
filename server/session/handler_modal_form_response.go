@@ -11,18 +11,28 @@ import (
 
 // ModalFormResponseHandler handles the ModalFormResponse packet.
 type ModalFormResponseHandler struct {
-	mu        sync.Mutex
-	forms     map[uint32]form.Form
-	currentID atomic.Uint32
+	mu                           sync.Mutex
+	forms                        map[uint32]form.Form
+	currentID                    atomic.Uint32
+	settings                     form.Form
+	settingsID, activeSettingsID uint32
 }
 
 // Handle ...
-func (h *ModalFormResponseHandler) Handle(p packet.Packet, _ *Session, tx *world.Tx, c Controllable) error {
+func (h *ModalFormResponseHandler) Handle(p packet.Packet, s *Session, tx *world.Tx, c Controllable) error {
 	pk := p.(*packet.ModalFormResponse)
+	s.cancelFormImages()
 
 	h.mu.Lock()
 	f, ok := h.forms[pk.FormID]
 	delete(h.forms, pk.FormID)
+	if pk.FormID&(1<<31) != 0 {
+		if h.settings == nil || pk.FormID != h.activeSettingsID {
+			h.mu.Unlock()
+			return nil
+		}
+		f, ok, h.settings = h.settings, true, nil
+	}
 	h.mu.Unlock()
 
 	resp, exists := pk.ResponseData.Value()

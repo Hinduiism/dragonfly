@@ -37,10 +37,15 @@ type Session struct {
 	conf           Config
 	once, connOnce sync.Once
 
-	ent      *world.EntityHandle
-	conn     Conn
-	handlers map[uint32]packetHandler
-	packets  chan packet.Packet
+	ent              *world.EntityHandle
+	conn             Conn
+	handlers         map[uint32]packetHandler
+	packets          chan packet.Packet
+	outputMu         sync.Mutex
+	outputClosed     bool
+	connectionEnd    ConnectionEnd
+	disconnectReason string
+	formImages       formImageState
 
 	currentScoreboard atomic.Pointer[string]
 	currentLines      atomic.Pointer[[]string]
@@ -166,7 +171,19 @@ const selfEntityRuntimeID = 1
 // must therefore always be 1.
 var errSelfRuntimeID = errors.New("invalid entity runtime ID: runtime ID for self must always be 1")
 
+// CommandPresentation customizes command metadata and output only. Callbacks
+// run without network locks and must be concurrency-safe and nonblocking.
+type CommandPresentation struct {
+	Metadata func(*world.EntityHandle, *packet.AvailableCommands)
+	Output   func(*world.EntityHandle, *packet.CommandOutput)
+}
+
 type Config struct {
+	Commands          CommandPresentation
+	ConnectionEnded   func(*Connection, ConnectionEnd)
+	ServerSettings    func(*world.Tx, Controllable) form.Form
+	FormImagesEnabled func() bool
+
 	Log *slog.Logger
 
 	MaxChunkRadius int
@@ -249,23 +266,16 @@ func (conf Config) New(conn Conn) *Session {
 	s.sendRecipes()
 	s.sendArmourTrimData()
 	s.SendSpeed(0.1)
-	go func() {
-		for {
-			select {
-			case <-s.closeBackground:
-				return
-			case pk := <-s.packets:
-				_ = conn.WritePacket(pk)
-			}
-		}
-	}()
+	go s.writeOutput()
 	return s
 }
 
 // SetHandle sets the world.EntityHandle of the Session and attaches a skin to
 // other players on join.
 func (s *Session) SetHandle(handle *world.EntityHandle, skin skin.Skin) {
+	s.outputMu.Lock()
 	s.ent = handle
+	s.outputMu.Unlock()
 	s.entityRuntimeIDs[handle] = selfEntityRuntimeID
 	s.entities[selfEntityRuntimeID] = handle
 
@@ -391,10 +401,7 @@ func (s *Session) close(tx *world.Tx, c Controllable) {
 // CloseConnection closes the underlying connection of the session so that the session ends up being closed
 // eventually.
 func (s *Session) CloseConnection() {
-	s.connOnce.Do(func() {
-		_ = s.conn.Close()
-		close(s.closeBackground)
-	})
+	s.closeConnection(ConnectionEnd{Kind: ConnectionEndServerClose})
 }
 
 // Addr returns the net.Addr of the client.
@@ -453,6 +460,7 @@ func (s *Session) handlePackets() {
 	for {
 		pk, err := s.conn.ReadPacket()
 		if err != nil {
+			s.closeConnection(ConnectionEnd{Kind: ConnectionEndTransport, Err: err})
 			return
 		}
 		err = s.withControllable(context.Background(), func(tx *world.Tx, c Controllable) error {
@@ -654,6 +662,8 @@ func (s *Session) registerHandlers() {
 		packet.IDItemStackRequest:          &ItemStackRequestHandler{changes: map[byte]map[byte]changeInfo{}, responseChanges: map[int32]map[*inventory.Inventory]map[byte]responseChange{}},
 		packet.IDLecternUpdate:             &LecternUpdateHandler{},
 		packet.IDMobEquipment:              &MobEquipmentHandler{},
+		packet.IDServerSettingsRequest:     &ServerSettingsRequestHandler{},
+		packet.IDNetworkStackLatency:       &FormImageAckHandler{},
 		packet.IDModalFormResponse:         &ModalFormResponseHandler{forms: make(map[uint32]form.Form)},
 		packet.IDMovePlayer:                nil,
 		packet.IDNPCRequest:                &NPCRequestHandler{},
