@@ -14,6 +14,7 @@ import (
 type formImageState struct {
 	mu         sync.Mutex
 	generation uint64
+	formID     uint32
 	pending    int64
 }
 
@@ -28,13 +29,23 @@ func (s *Session) cancelFormImages() {
 	s.formImages.mu.Unlock()
 }
 
-func (s *Session) scheduleFormImages(data []byte) {
+func (s *Session) cancelFormImagesFor(id uint32) {
+	s.formImages.mu.Lock()
+	defer s.formImages.mu.Unlock()
+	if s.formImages.formID == id {
+		s.formImages.generation++
+		s.formImages.pending = 0
+	}
+}
+
+func (s *Session) scheduleFormImages(data []byte, id uint32) {
 	s.cancelFormImages()
 	if !s.formImagesEnabled() || !containsFormURLImage(data) {
 		return
 	}
 	s.formImages.mu.Lock()
 	generation := s.formImages.generation
+	s.formImages.formID = id
 	s.formImages.mu.Unlock()
 	go func() {
 		if !s.formImageDelay(50 * time.Millisecond) {

@@ -21,7 +21,6 @@ type ModalFormResponseHandler struct {
 // Handle ...
 func (h *ModalFormResponseHandler) Handle(p packet.Packet, s *Session, tx *world.Tx, c Controllable) error {
 	pk := p.(*packet.ModalFormResponse)
-	s.cancelFormImages()
 
 	h.mu.Lock()
 	f, ok := h.forms[pk.FormID]
@@ -48,6 +47,7 @@ func (h *ModalFormResponseHandler) Handle(p packet.Packet, s *Session, tx *world
 	if !ok {
 		return fmt.Errorf("no form with ID %v currently opened", pk.FormID)
 	}
+	s.cancelFormImagesFor(pk.FormID)
 	if err := f.SubmitJSON(resp, c, tx); err != nil {
 		if pk.FormID&(1<<31) != 0 {
 			s.conf.Log.Error("submit server settings", "error", err)

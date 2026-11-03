@@ -537,7 +537,7 @@ func (s *Session) SendForm(f form.Form) {
 		FormID:   id,
 		FormData: b,
 	})
-	s.scheduleFormImages(b)
+	s.scheduleFormImages(b, id)
 }
 
 // CloseForm closes any forms that the player currently has open. If the player has no forms open, nothing

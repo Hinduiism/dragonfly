@@ -148,3 +148,16 @@ func TestNativeServerSettingsIDsAndStaleResponses(t *testing.T) {
 		t.Fatal("settings reused stale ID")
 	}
 }
+
+func TestFormImageRefreshIsCancelledOnlyByItsOwnResponse(t *testing.T) {
+	s, _ := nativeOutputSession(8)
+	s.formImages.formID, s.formImages.generation, s.formImages.pending = 7, 3, 99
+	s.cancelFormImagesFor(6)
+	if s.formImages.generation != 3 || s.formImages.pending != 99 {
+		t.Fatal("old form cancelled current image refresh")
+	}
+	s.cancelFormImagesFor(7)
+	if s.formImages.generation != 4 || s.formImages.pending != 0 {
+		t.Fatal("active response left refresh running")
+	}
+}
