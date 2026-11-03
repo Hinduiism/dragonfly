@@ -2,6 +2,8 @@ github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84 h1:bsNoCci
 github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84/go.mod h1:m8i0H2zIDryMgl0RLo/M/1BML0Oc6EpqgorBP9LgmKM=
 github.com/ValorNetworks/gophertunnel v0.0.0-20261102195413-60622f2afb99 h1:nN2mA4icDl/8aHo+ld3SWkVESp5dUy5Ki4QOKhcbTgI=
 github.com/ValorNetworks/gophertunnel v0.0.0-20261102195413-60622f2afb99/go.mod h1:E2c3C7Z1+taMqeAkxbj9ksyABmGALLkp8Ck6GkcMJkE=
+github.com/ValorNetworks/gophertunnel v0.0.0-20261103042945-35be0a2af89c h1:k9KlOxc/wYuOsUMialHEenEOK8/7XpBvehzC6P1XIiU=
+github.com/ValorNetworks/gophertunnel v0.0.0-20261103042945-35be0a2af89c/go.mod h1:E2c3C7Z1+taMqeAkxbj9ksyABmGALLkp8Ck6GkcMJkE=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 h1:UZbbt19ACBOFO+CiDQFjaEoPJkBhj7GNGtIq59WR6Os=
 github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479/go.mod h1:TOk10ahXejq9wkEaym3KPRNeuR/h5Jx+s8QRWIa2oTM=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=

@@ -2,7 +2,7 @@ module github.com/df-mc/dragonfly
 
 go 1.26.0
 
-replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261102195413-60622f2afb99
+replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261103042945-35be0a2af89c
 
 replace github.com/sandertv/go-raknet => github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84
 

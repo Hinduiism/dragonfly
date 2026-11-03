@@ -3482,21 +3482,21 @@ func (p *Player) RemoveAllDebugShapes() {
 // updated lock state to the client.
 func (p *Player) LockInput(l input.Lock) {
 	p.session().LockInput(l)
-	p.session().SendInputLocks()
+	p.session().SendInputLocks(p)
 }
 
 // UnlockInput removes an input lock from the player, re-enabling the specified input and immediately sending
 // the updated lock state to the client.
 func (p *Player) UnlockInput(l input.Lock) {
 	p.session().UnlockInput(l)
-	p.session().SendInputLocks()
+	p.session().SendInputLocks(p)
 }
 
 // ClearInputLocks removes all input locks from the player, re-enabling all inputs and immediately sending the
 // updated lock state to the client.
 func (p *Player) ClearInputLocks() {
 	p.session().ClearInputLocks()
-	p.session().SendInputLocks()
+	p.session().SendInputLocks(p)
 }
 
 // InputLocked checks if a specific input lock is currently applied to the player.

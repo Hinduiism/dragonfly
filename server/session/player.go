@@ -1086,12 +1086,16 @@ func (s *Session) InputLocked(l input.Lock) bool {
 	return s.inputLocks&l.Uint32() != 0
 }
 
-// SendInputLocks sends the current input lock state to the client.
-func (s *Session) SendInputLocks() {
+// SendInputLocks sends the current input lock state and captures the player's
+// network position for older clients. Call it on c's world owner, after any
+// teleport that precedes this permission change.
+func (s *Session) SendInputLocks(c Controllable) {
 	s.inputLocksMu.RLock()
-	defer s.inputLocksMu.RUnlock()
+	locks := s.inputLocks
+	s.inputLocksMu.RUnlock()
 	s.writePacket(&packet.UpdateClientInputLocks{
-		Locks: s.inputLocks,
+		Locks:    locks,
+		Position: vec64To32(c.Position().Add(entityOffset(c))),
 	})
 }
 
