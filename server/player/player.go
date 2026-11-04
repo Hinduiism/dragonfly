@@ -3458,6 +3458,12 @@ func (p *Player) HudElementHidden(e hud.Element) bool {
 
 // AddDebugShape adds a debug shape to be rendered to the player. If the shape already exists, it will be
 // updated with the new information.
+// DebugRenderer returns this connection's thread-safe shape output. It may be
+// retained for cleanup without retaining a Player/world transaction. Mutating a
+// shape concurrently with its submission is still the caller's responsibility.
+func (p *Player) DebugRenderer() debug.Renderer { return p.session() }
+
+// AddDebugShape submits a shape frame to this connection.
 func (p *Player) AddDebugShape(shape debug.Shape) {
 	p.session().AddDebugShape(shape)
 }
