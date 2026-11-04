@@ -1,6 +1,22 @@
 package particle
 
-import "image/color"
+import (
+	"image/color"
+	"time"
+)
+
+// Lightning displays a short, silent lightning bolt. It is a visual only: it
+// cannot damage entities, set fires or modify blocks.
+type Lightning struct{ particle }
+
+// Firework displays a silent decorative rocket and burst. It has no world
+// entity, collision, damage or attached owner. Sounds are controlled by callers.
+type Firework struct {
+	particle
+	Colour color.RGBA
+	// Duration controls the flight, clamped to 200ms..2s; zero uses 600ms.
+	Duration time.Duration
+}
 
 // HugeExplosion is a particle shown when TNT or a creeper explodes.
 type HugeExplosion struct{ particle }

@@ -994,10 +994,16 @@ func (tx *Tx) temperature(pos cube.Pos) float64 {
 
 // addParticle spawns a Particle at a given position in the World. Viewers that
 // are viewing the chunk will be shown the particle.
-func (w *World) addParticle(pos mgl64.Vec3, p Particle) {
+func (w *World) addParticle(tx *Tx, pos mgl64.Vec3, p Particle) {
 	p.Spawn(w, pos)
 	for _, viewer := range w.viewersOf(pos) {
-		viewer.ViewParticle(pos, p)
+		if contextual, ok := viewer.(interface {
+			ViewParticleInTx(*Tx, mgl64.Vec3, Particle)
+		}); ok {
+			contextual.ViewParticleInTx(tx, pos, p)
+		} else {
+			viewer.ViewParticle(pos, p)
+		}
 	}
 }
 

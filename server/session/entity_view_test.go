@@ -54,7 +54,7 @@ func newEntityViewFixture(t testing.TB, definitions ...world.EntityPropertyDefin
 		t.Fatal(err)
 	}
 	typ := viewTestType{schema: schema, session: s}
-	w := world.Config{Synchronous: true, Entities: (world.EntityRegistryConfig{}).New([]world.EntityType{typ})}.New()
+	w := world.Config{Synchronous: true, Entities: (world.EntityRegistryConfig{}).New([]world.EntityType{typ, entity.LightningType, entity.FireworkType})}.New()
 	t.Cleanup(func() { _ = w.Close() })
 	s.ent = (world.EntitySpawnOpts{}).New(typ, entity.StationaryBehaviourConfig{})
 	if err := w.Do(func(tx *world.Tx) { tx.AddEntity(s.ent) }).Wait(t.Context()); err != nil {

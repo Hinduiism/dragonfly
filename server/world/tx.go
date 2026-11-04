@@ -281,7 +281,7 @@ func (tx *Tx) Thundering() bool {
 // AddParticle spawns a Particle at a given position in the World. Viewers that
 // are viewing the chunk will be shown the particle.
 func (tx *Tx) AddParticle(pos mgl64.Vec3, p Particle) {
-	tx.World().addParticle(pos, p)
+	tx.World().addParticle(tx, pos, p)
 }
 
 // PlayEntityAnimation plays an animation on an entity in the World. The animation is played for all viewers

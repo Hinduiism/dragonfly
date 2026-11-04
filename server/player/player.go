@@ -3335,7 +3335,7 @@ func (p *Player) PlaySound(sound world.Sound) {
 // ShowParticle shows a particle that only this Player can see. Unlike World.AddParticle, it is not broadcast
 // to players around it.
 func (p *Player) ShowParticle(pos mgl64.Vec3, particle world.Particle) {
-	p.session().ViewParticle(pos, particle)
+	p.session().ViewParticleInTx(p.tx, pos, particle)
 }
 
 // OpenSign makes the player open the sign at the cube.Pos passed, with the specific side provided. The client will not

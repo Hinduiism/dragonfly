@@ -63,6 +63,12 @@ func (s *Session) entityViewOwner(tx *world.Tx) bool {
 // AddEntityView creates a private display of a registered type, at scale 1 with
 // zero collision bounds. Call only on the player's current world owner.
 func (s *Session) AddEntityView(tx *world.Tx, identifier string, state EntityViewState) (*EntityView, error) {
+	return s.addEntityView(tx, identifier, state, nil)
+}
+
+// addEntityView shares ID ownership and teardown with ordinary private views.
+// Specialised native visual encoders may supply their required spawn metadata.
+func (s *Session) addEntityView(tx *world.Tx, identifier string, state EntityViewState, metadata protocol.EntityMetadata) (*EntityView, error) {
 	if !s.entityViewOwner(tx) {
 		return nil, ErrEntityViewClosed
 	}
@@ -87,7 +93,10 @@ func (s *Session) AddEntityView(tx *world.Tx, identifier string, state EntityVie
 		s.entityViews = make(map[uint64]*EntityView)
 	}
 	s.entityViews[id] = v
-	m := protocol.NewEntityMetadata()
+	m := metadata
+	if m == nil {
+		m = protocol.NewEntityMetadata()
+	}
 	m.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagNoAI)
 	m.UnsetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagHasGravity)
 	m.UnsetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagHasCollision)

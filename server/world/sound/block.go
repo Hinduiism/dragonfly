@@ -14,6 +14,13 @@ type BlockPlace struct {
 	sound
 }
 
+// BlockBreak is the one-shot completion sound of a block being broken. Playing
+// it does not break the block or create particles.
+type BlockBreak struct {
+	Block world.Block
+	sound
+}
+
 // BlockBreaking is a sound sent continuously while a player is breaking a block.
 type BlockBreaking struct {
 	// Block is the block which is being broken, for which a sound should be played. The sound played depends
