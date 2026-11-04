@@ -162,6 +162,17 @@ type Text struct {
 	Entity *world.EntityHandle
 }
 
+// Snapshot copies a text frame while preserving its identity. Callers must not
+// mutate Text concurrently with Snapshot, but may change it after submission.
+// The atomic ID is explicitly transferred instead of copying an atomic value.
+func (t *Text) Snapshot() *Text {
+	c := &Text{Colour: t.Colour, BackgroundColour: t.BackgroundColour, HideBackground: t.HideBackground,
+		Position: t.Position, Rotation: t.Rotation, Scale: t.Scale, Text: t.Text, LockRotation: t.LockRotation,
+		DisableDepthTest: t.DisableDepthTest, HideBackface: t.HideBackface, HideBackfaceText: t.HideBackfaceText, Entity: t.Entity}
+	c.shape.id.Store(int32(t.ShapeID()))
+	return c
+}
+
 // Cylinder represents a hollow cylinder, or frustum, that can be drawn at any point in the world, with a
 // height running up the Y axis. The base and top each have their own radius on the X and Z axes, allowing
 // for tapered and elliptical cylinders. A Cone is the special case of a Cylinder with a zero top radius.

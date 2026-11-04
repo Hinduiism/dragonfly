@@ -992,6 +992,9 @@ func (s *Session) AddDebugShape(shape debug.Shape) {
 	if s == Nop {
 		return
 	}
+	if text, ok := shape.(*debug.Text); ok {
+		shape = text.Snapshot()
+	}
 	s.queueDebugShapeUpdate(debugShapeUpdate{id: shape.ShapeID(), shape: shape})
 }
 
