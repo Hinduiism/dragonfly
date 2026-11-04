@@ -838,7 +838,7 @@ func (s *Session) playSound(pos mgl64.Vec3, t world.Sound, disableRelative bool)
 		if so.Block == nil {
 			return
 		}
-		pk.SoundType, pk.ExtraData = packet.SoundEventBreak, int32(s.br.BlockRuntimeID(so.Block))
+		pk.SoundType, pk.ExtraData = packet.SoundEventBreakBlock, int32(s.br.BlockRuntimeID(so.Block))
 	case sound.ItemBreak:
 		pk.SoundType = packet.SoundEventBreak
 	case sound.ItemUseOn:
