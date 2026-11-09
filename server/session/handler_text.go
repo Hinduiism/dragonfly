@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -16,8 +17,12 @@ func (TextHandler) Handle(p packet.Packet, s *Session, _ *world.Tx, c Controllab
 	if pk.TextType != packet.TextTypeChat {
 		return fmt.Errorf("TextType should always be Chat (%v), but got %v", packet.TextTypeChat, pk.TextType)
 	}
-	if pk.SourceName != s.conn.IdentityData().DisplayName {
-		return fmt.Errorf("SourceName must be equal to DisplayName")
+	// Bedrock echoes the server-published player-list name as SourceName after
+	// a nickname change. Other client versions keep sending the login name.
+	// Accept only these two names for this connection; neither selects the
+	// account that speaks. Chat is always dispatched through its controllable.
+	if pk.SourceName != s.conn.IdentityData().DisplayName && pk.SourceName != s.presentation().name {
+		return fmt.Errorf("SourceName must match the account or presentation name")
 	}
 	if pk.XUID != s.conn.IdentityData().XUID {
 		return fmt.Errorf("XUID must be equal to player's XUID")
