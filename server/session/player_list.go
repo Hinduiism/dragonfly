@@ -9,9 +9,10 @@ import (
 )
 
 type playerListState struct {
-	listed      bool
-	initialized bool
-	revision    uint64
+	presentationRevision uint64
+	listed               bool
+	initialized          bool
+	revision             uint64
 }
 
 func (l *sessionList) reconcilePlayerList(target, viewer *Session) bool {
@@ -29,6 +30,7 @@ func (l *sessionList) applyPlayerListDecision(target, viewer *Session, listed bo
 		return false
 	}
 	state := viewer.playerList[target.ent]
+	presentation := target.presentation()
 	if state.initialized && revision < state.revision {
 		viewer.publicationMu.Unlock()
 		return true
@@ -38,25 +40,28 @@ func (l *sessionList) applyPlayerListDecision(target, viewer *Session, listed bo
 		return false
 	}
 	runtimeID := viewer.ensurePlayerRuntimeID(target)
-	if state.initialized && state.listed == listed {
+	if state.initialized && state.listed == listed && (!listed || state.presentationRevision == presentation.revision) {
 		state.revision = revision
 		viewer.playerList[target.ent] = state
 		viewer.publicationMu.Unlock()
 		return true
 	}
 
-	var pk packet.Packet
+	var packets []packet.Packet
 	if listed {
-		pk = &packet.PlayerList{Entries: []protocol.PlayerListEntry{target.playerListEntry(runtimeID)}}
+		if state.initialized && state.listed {
+			packets = append(packets, playerListRemove(target.ent.UUID()))
+		}
+		packets = append(packets, &packet.PlayerList{Entries: []protocol.PlayerListEntry{target.playerListEntryWithPresentation(runtimeID, presentation)}})
 	} else if state.initialized {
-		pk = playerListRemove(target.ent.UUID())
+		packets = append(packets, playerListRemove(target.ent.UUID()))
 	}
-	if pk != nil && !viewer.writePublicationPacket(pk) {
+	if !viewer.writePublicationPackets(packets) {
 		viewer.publicationMu.Unlock()
 		viewer.CloseConnection()
 		return false
 	}
-	viewer.playerList[target.ent] = playerListState{listed: listed, initialized: true, revision: revision}
+	viewer.playerList[target.ent] = playerListState{listed: listed, initialized: true, revision: revision, presentationRevision: presentation.revision}
 	viewer.publicationMu.Unlock()
 	return true
 }
@@ -117,11 +122,15 @@ func (s *Session) ensurePlayerRuntimeID(target *Session) uint64 {
 }
 
 func (s *Session) playerListEntry(runtimeID uint64) protocol.PlayerListEntry {
+	return s.playerListEntryWithPresentation(runtimeID, s.presentation())
+}
+
+func (s *Session) playerListEntryWithPresentation(runtimeID uint64, presentation presentationSnapshot) protocol.PlayerListEntry {
 	return protocol.PlayerListEntry{
 		ActionType:     protocol.PlayerListActionAdd,
 		UUID:           s.ent.UUID(),
 		EntityUniqueID: int64(runtimeID),
-		Username:       s.conn.IdentityData().DisplayName,
+		Username:       presentation.name,
 		XUID:           s.conn.IdentityData().XUID,
 		PlayFabID:      s.conn.IdentityData().PlayFabID,
 		BuildPlatform:  int32(protocol.DeviceUnknown),

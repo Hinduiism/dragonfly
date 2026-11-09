@@ -84,7 +84,8 @@ type Session struct {
 	inv, offHand, enderChest, ui *inventory.Inventory
 	armour                       *inventory.Armour
 
-	playerListSkin atomic.Pointer[skin.Skin]
+	playerListSkin   atomic.Pointer[skin.Skin]
+	presentationName atomic.Pointer[presentationSnapshot]
 
 	breakingPos cube.Pos
 

@@ -8,11 +8,12 @@ import (
 )
 
 type playerActorState struct {
-	streamed    bool
-	visible     bool
-	allowed     bool
-	initialized bool
-	revision    uint64
+	presentationRevision uint64
+	streamed             bool
+	visible              bool
+	allowed              bool
+	initialized          bool
+	revision             uint64
 }
 
 type playerActor interface {
@@ -23,8 +24,9 @@ type playerActor interface {
 }
 
 type playerActorPublication struct {
-	add  *packet.AddPlayer
-	skin *packet.PlayerSkin
+	revision uint64
+	add      *packet.AddPlayer
+	skin     *packet.PlayerSkin
 }
 
 // RefreshPlayerVisibility re-evaluates an exact connected player's actor and
@@ -136,7 +138,11 @@ func (s *Session) applyPlayerActorDecision(actor playerActor, target *Session, p
 		state.streamed = true
 	}
 	desired := visible && state.streamed && !s.entityExplicitlyHidden(actor)
-	if state.initialized && state.visible == desired {
+	if desired && publication.revision < state.presentationRevision {
+		s.publicationMu.Unlock()
+		return true, false
+	}
+	if state.initialized && state.visible == desired && (!desired || state.presentationRevision == publication.revision) {
 		state.allowed, state.revision = visible, revision
 		s.playerActors[target.ent] = state
 		s.publicationMu.Unlock()
@@ -146,6 +152,9 @@ func (s *Session) applyPlayerActorDecision(actor playerActor, target *Session, p
 	runtimeID := s.ensurePlayerRuntimeID(target)
 	var packets []packet.Packet
 	if desired {
+		if state.visible {
+			packets = append(packets, &packet.RemoveActor{EntityUniqueID: int64(runtimeID)})
+		}
 		listState := s.playerList[target.ent]
 		if !listState.listed {
 			packets = append(packets, &packet.PlayerList{Entries: []protocol.PlayerListEntry{target.playerListEntry(runtimeID)}})
@@ -164,8 +173,11 @@ func (s *Session) applyPlayerActorDecision(actor playerActor, target *Session, p
 		s.CloseConnection()
 		return false, false
 	}
-	revealed := desired && !state.visible
+	revealed := desired
 	state.visible, state.allowed, state.initialized, state.revision = desired, visible, true, revision
+	if desired {
+		state.presentationRevision = publication.revision
+	}
 	s.playerActors[target.ent] = state
 	s.publicationMu.Unlock()
 	return true, revealed
@@ -173,7 +185,9 @@ func (s *Session) applyPlayerActorDecision(actor playerActor, target *Session, p
 
 func (s *Session) snapshotPlayerActor(actor playerActor, target *Session) playerActorPublication {
 	yaw, pitch := actor.Rotation().Elem()
+	presentation := target.presentation()
 	return playerActorPublication{
+		revision: presentation.revision,
 		add: &packet.AddPlayer{
 			EntityMetadata: s.entityMetadata(actor),
 			GameType:       gameTypeFromMode(actor.GameMode()),
@@ -181,7 +195,7 @@ func (s *Session) snapshotPlayerActor(actor playerActor, target *Session) player
 			Pitch:          float32(pitch),
 			Position:       vec64To32(actor.Position()),
 			UUID:           actor.UUID(),
-			Username:       actor.Name(),
+			Username:       presentation.name,
 			Yaw:            float32(yaw),
 			BuildPlatform:  int32(protocol.DeviceUnknown),
 			AbilityData: protocol.AbilityData{

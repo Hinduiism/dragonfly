@@ -97,7 +97,7 @@ func (s *Session) ViewEntity(e world.Entity) {
 			ActionType:     protocol.PlayerListActionAdd,
 			UUID:           v.UUID(),
 			EntityUniqueID: int64(runtimeID),
-			Username:       v.Name(),
+			Username:       presentationName(v),
 			BuildPlatform:  int32(protocol.DeviceUnknown),
 			Skin:           skinToProtocol(v.Skin()),
 		}}})
@@ -110,7 +110,7 @@ func (s *Session) ViewEntity(e world.Entity) {
 			Pitch:           float32(pitch),
 			Position:        vec64To32(e.Position()),
 			UUID:            v.UUID(),
-			Username:        v.Name(),
+			Username:        presentationName(v),
 			Yaw:             float32(yaw),
 			BuildPlatform:   int32(protocol.DeviceUnknown),
 			AbilityData: protocol.AbilityData{

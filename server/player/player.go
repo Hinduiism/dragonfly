@@ -42,6 +42,7 @@ import (
 )
 
 type playerData struct {
+	presentationName  string
 	xuid              string
 	locale            language.Tag
 	nameTag, scoreTag string
