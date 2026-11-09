@@ -209,7 +209,7 @@ func skinToProtocol(s skin.Skin) protocol.Skin {
 		armSize = protocol.ArmSizeSlim
 	}
 	return protocol.Skin{
-		SkinID:                    uuid.New().String(),
+		SkinID:                    fullID,
 		SkinResourcePatch:         s.ModelConfig.Encode(),
 		SkinImageWidth:            uint32(s.Bounds().Max.X),
 		SkinImageHeight:           uint32(s.Bounds().Max.Y),

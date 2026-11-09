@@ -71,3 +71,16 @@ func TestClassicSkinPacketHasExplicitAppearanceMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestSkinCacheIdentityRemainsStableAcrossPacketPublications(t *testing.T) {
+	value := skin.New(64, 64)
+	value.FullID = "unique-appearance-id"
+	first, second := skinToProtocol(value), skinToProtocol(value)
+	if first.SkinID != second.SkinID || first.SkinID != value.FullID {
+		t.Fatalf("one appearance produced inconsistent cache keys: %q and %q", first.SkinID, second.SkinID)
+	}
+	value.FullID = "replacement-appearance-id"
+	if skinToProtocol(value).SkinID == first.SkinID {
+		t.Fatal("replacement appearance reused the old skin cache key")
+	}
+}
