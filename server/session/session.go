@@ -84,8 +84,9 @@ type Session struct {
 	inv, offHand, enderChest, ui *inventory.Inventory
 	armour                       *inventory.Armour
 
-	playerListSkin   atomic.Pointer[skin.Skin]
-	presentationName atomic.Pointer[presentationSnapshot]
+	playerListSkin     atomic.Pointer[skin.Skin]
+	skinRefreshPending atomic.Bool
+	presentationName   atomic.Pointer[presentationSnapshot]
 
 	breakingPos cube.Pos
 
@@ -302,6 +303,7 @@ func (s *Session) ViewerHandle() *world.EntityHandle {
 func (s *Session) SetPlayerListSkin(value skin.Skin) {
 	current := value
 	s.playerListSkin.Store(&current)
+	s.queuePlayerListSkinRefresh(sessions)
 }
 
 // Spawn makes the Controllable passed spawn in the world.World.
