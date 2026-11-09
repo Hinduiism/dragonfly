@@ -204,6 +204,10 @@ func skinToProtocol(s skin.Skin) protocol.Skin {
 	if len(model) == 0 {
 		model = []byte("{}")
 	}
+	armSize := uint8(protocol.ArmSizeWide)
+	if s.ModelConfig.Default == "geometry.humanoid.customSlim" {
+		armSize = protocol.ArmSizeSlim
+	}
 	return protocol.Skin{
 		SkinID:                    uuid.New().String(),
 		SkinResourcePatch:         s.ModelConfig.Encode(),
@@ -215,6 +219,8 @@ func skinToProtocol(s skin.Skin) protocol.Skin {
 		CapeData:                  s.Cape.Pix,
 		SkinGeometry:              model,
 		PersonaSkin:               s.Persona,
+		PrimaryUser:               true,
+		ArmSize:                   armSize,
 		CapeID:                    uuid.New().String(),
 		FullID:                    fullID,
 		Animations:                animations,

@@ -1,6 +1,9 @@
 package session
 
-import "github.com/df-mc/dragonfly/server/world"
+import (
+	"github.com/df-mc/dragonfly/server/world"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+)
 
 // presentationSnapshot is immutable and safe for cross-owner list publication.
 type presentationSnapshot struct {
@@ -36,7 +39,12 @@ func (s *Session) PublishPresentationName(target world.Entity, name string) {
 	for _, viewer := range sessions.snapshot() {
 		// The target session is already known. Looking it up for every viewer
 		// would turn one appearance update into a quadratic registry scan.
-		viewer.refreshConnectedPlayer(actor, s)
+		if viewer.refreshConnectedPlayer(actor, s) && viewer == s {
+			// The local actor is not respawned by the presentation refresh.
+			// Reassert its current skin after replacing its player-list entry,
+			// so the earlier SetSkin update is not invalidated by that removal.
+			viewer.writePacket(&packet.PlayerSkin{UUID: s.ent.UUID(), Skin: s.playerListProtocolSkin()})
+		}
 	}
 }
 
