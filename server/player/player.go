@@ -677,6 +677,9 @@ func (p *Player) HurtWithResult(dmg float64, src world.DamageSource) entity.HitR
 }
 
 type hurtOptions struct {
+	directMelee             bool
+	critical                bool
+	freshMelee              bool
 	continueThroughImmunity bool
 	deferHurtAction         bool
 	policyChecked           bool
@@ -741,7 +744,7 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 
 	ignoreImmunity := ignoresAttackImmunity(src)
 	immuneUntil, lastDamage := p.attackImmunity(src)
-	immune := !ignoreImmunity && time.Now().Before(immuneUntil)
+	immune := !ignoreImmunity && !opts.freshMelee && time.Now().Before(immuneUntil)
 	immunitySuppressed := false
 	if immune {
 		if damageLeft -= lastDamage; damageLeft <= 0 {
@@ -758,12 +761,14 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	}
 	result := hurtResult{policyAccepted: true}
 	if immunitySuppressed && damageLeft <= 0 {
+		p.observeDamageOutcome(src, opts, 0, 0, false)
 		return result
 	}
 	if !ignoreImmunity {
 		p.setAttackImmunity(immunity, totalDamage, src)
 	}
 
+	healthBefore, absorptionBefore := p.Health(), p.Absorption()
 	if a := p.Absorption(); a > 0 && !ignoresAbsorption(src) {
 		remaining := a - damageLeft
 		p.SetAbsorption(remaining)
@@ -776,10 +781,12 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	if p.Health()-damageLeft <= mgl64.Epsilon && !src.IgnoreTotem() {
 		hand, offHand := p.HeldItems()
 		if _, ok := offHand.Item().(item.Totem); ok {
+			p.observeDamageOutcome(src, opts, 0, max(0, absorptionBefore-p.Absorption()), true)
 			p.applyTotemEffects()
 			p.SetHeldItems(hand, offHand.Grow(-1))
 			return result
 		} else if _, ok := hand.Item().(item.Totem); ok {
+			p.observeDamageOutcome(src, opts, 0, max(0, absorptionBefore-p.Absorption()), true)
 			p.applyTotemEffects()
 			p.SetHeldItems(hand.Grow(-1), offHand)
 			return result
@@ -787,6 +794,7 @@ func (p *Player) hurt(dmg float64, src world.DamageSource, opts hurtOptions) hur
 	}
 
 	p.addHealth(-damageLeft)
+	p.observeDamageOutcome(src, opts, max(0, healthBefore-p.Health()), max(0, absorptionBefore-p.Absorption()), false)
 
 	if src.ReducedByArmour() {
 		p.Exhaust(0.1)
@@ -1680,6 +1688,9 @@ func (p *Player) SetHeldSlot(to int) error {
 	}
 	*p.heldSlot = uint32(to)
 	p.CancelItemUse()
+	if h, ok := p.Handler().(HeldSlotChangeObserver); ok {
+		h.HandleHeldSlotChanged(p, from, to)
+	}
 
 	for _, viewer := range p.viewers() {
 		viewer.ViewEntityItems(p)
@@ -1798,7 +1809,13 @@ func (p *Player) useItem(trigger uint32, fromClient bool) {
 	it := i.Item()
 
 	if cd, ok := it.(item.Cooldown); ok {
-		p.SetCooldown(it, cd.Cooldown())
+		duration := cd.Cooldown()
+		if h, ok := p.Handler().(ItemCooldownHandler); ok {
+			if override := h.HandleItemCooldown(p, it, duration); override > 0 {
+				duration = override
+			}
+		}
+		p.SetCooldown(it, duration)
 	}
 
 	if _, ok := it.(item.Releasable); ok {

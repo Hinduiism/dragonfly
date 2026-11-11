@@ -243,7 +243,17 @@ func (p *Player) attackPlayer(target *Player) bool {
 		damage *= 1.5
 	}
 
-	result := target.hurtByPlayerMeleePolicy(damage, baseDamage, p, force, verticalLimit, policy)
+	fresh := false
+	if policy == HitNormal {
+		if h, ok := p.Handler().(MeleeCooldownHandler); ok {
+			fresh = h.HandleMeleeCooldown(ctx, target)
+			if ctx.Cancelled() {
+				p.SwingArm()
+				return false
+			}
+		}
+	}
+	result := target.hurtByPlayerMeleeWindow(damage, baseDamage, p, force, verticalLimit, policy, fresh, critical)
 	if result.knockbackOnly {
 		p.SwingArm()
 		return result.accepted
@@ -286,6 +296,10 @@ func (p *Player) hurtByPlayerMelee(damage, baseDamage float64, attacker *Player,
 }
 
 func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *Player, force, verticalLimit float64, policy HitPolicy) playerMeleeHurtResult {
+	return p.hurtByPlayerMeleeWindow(damage, baseDamage, attacker, force, verticalLimit, policy, false, false)
+}
+
+func (p *Player) hurtByPlayerMeleeWindow(damage, baseDamage float64, attacker *Player, force, verticalLimit float64, policy HitPolicy, fresh, critical bool) playerMeleeHurtResult {
 	if policy == HitBlocked {
 		return playerMeleeHurtResult{}
 	}
@@ -303,6 +317,9 @@ func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *P
 		return result
 	}
 	decision := p.directMelee.classify(baseDamage)
+	if fresh && decision != directMeleeProtected {
+		decision = directMeleeCold
+	}
 	if decision == directMeleeProtected || decision == directMeleeWarmRejected {
 		return playerMeleeHurtResult{decision: decision}
 	}
@@ -310,6 +327,9 @@ func (p *Player) hurtByPlayerMeleePolicy(damage, baseDamage float64, attacker *P
 		continueThroughImmunity: true,
 		deferHurtAction:         true,
 		policyChecked:           true,
+		directMelee:             true,
+		critical:                critical,
+		freshMelee:              fresh,
 	})
 	if !result.policyAccepted {
 		return playerMeleeHurtResult{decision: decision}
