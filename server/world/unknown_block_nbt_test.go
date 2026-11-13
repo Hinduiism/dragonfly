@@ -112,6 +112,29 @@ func TestUnknownBlockEncodeNBTOmitsCoordinatesOnly(t *testing.T) {
 	}
 }
 
+func TestColumnLoadRemovesPhantomActorsFromImplementedTerrain(t *testing.T) {
+	w := Config{Synchronous: true, Blocks: snapshotTestRegistry()}.New()
+	defer w.Close()
+	c := &chunk.Column{Chunk: chunk.New(w.BlockRegistry(), w.Range())}
+	for i, data := range []map[string]any{nil, {}, {"x": int32(2), "y": int32(4), "z": int32(0)}} {
+		pos := cube.Pos{i, 4, 0}
+		c.Chunk.SetBlock(uint8(i), 4, 0, 0, w.BlockRegistry().BlockRuntimeID(snapshotStone{}))
+		c.BlockEntities = append(c.BlockEntities, chunk.BlockEntity{Pos: pos, Data: data})
+	}
+	// A genuine implemented actor still gets its default data, even if the
+	// saved record was empty. Only terrain without NBT support is cleaned here.
+	pos := cube.Pos{3, 4, 0}
+	c.Chunk.SetBlock(3, 4, 0, 0, w.BlockRegistry().BlockRuntimeID(snapshotNBTBlock{}))
+	c.BlockEntities = append(c.BlockEntities, chunk.BlockEntity{Pos: pos, Data: map[string]any{}})
+	col := w.columnFrom(c, ChunkPos{})
+	if !col.modified || len(col.BlockEntities) != 1 || col.BlockEntities[pos] != (snapshotNBTBlock{}) {
+		t.Fatalf("expected only genuine actor after cleanup, modified=%v actors=%#v", col.modified, col.BlockEntities)
+	}
+	if saved := w.columnTo(col, ChunkPos{}); len(saved.BlockEntities) != 1 {
+		t.Fatalf("saved %d actors, expected one", len(saved.BlockEntities))
+	}
+}
+
 type unknownNBTViewer struct {
 	NopViewer
 	updates int

@@ -1808,6 +1808,12 @@ func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
 		}
 		nb, ok := b.(NBTer)
 		if !ok {
+			if emptyBlockActorData(be.Data) {
+				// A formerly unknown block may now be implemented without NBT
+				// support. Its old phantom actor needs the same cleanup.
+				col.modified = true
+				continue
+			}
 			w.conf.Log.Error("read column: block with nbt does not implement NBTer", "block", fmt.Sprintf("%#v", b))
 			continue
 		}

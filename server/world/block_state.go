@@ -121,10 +121,11 @@ func (b unknownBlock) EncodeNBT() map[string]any {
 // an artefact of serialising an empty actor and carry no block-specific data.
 func emptyUnknownBlockNBT(b Block) bool {
 	u, ok := b.(unknownBlock)
-	if !ok {
-		return false
-	}
-	for key := range u.data {
+	return ok && emptyBlockActorData(u.data)
+}
+
+func emptyBlockActorData(data map[string]any) bool {
+	for key := range data {
 		if key != "x" && key != "y" && key != "z" {
 			return false
 		}
