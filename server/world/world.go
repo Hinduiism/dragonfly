@@ -268,6 +268,11 @@ func (w *World) blockInChunkResult(c *Column, pos cube.Pos) (Block, bool) {
 		if b, ok := c.BlockEntities[pos]; ok {
 			return b, false
 		}
+		if b := w.conf.Blocks.BlockByRuntimeIDOrAir(rid); IsUnimplementedBlock(b) {
+			// NBT support on unknown blocks only preserves saved actor data. A
+			// read must not invent an actor for ordinary unsupported terrain.
+			return b, false
+		}
 		// Despite being a block with NBT, the block didn't actually have any
 		// stored NBT yet. We add it here and update the block.
 		nbtB := w.conf.Blocks.BlockByRuntimeIDOrAir(rid).(NBTer).DecodeNBT(map[string]any{}).(Block)
@@ -536,7 +541,7 @@ func (tx *Tx) setBlock(pos cube.Pos, b Block, opts *SetOpts) {
 	c.modified = true
 	c.SetBlock(x, y, z, 0, rid)
 	tx.blockRevision++
-	if w.conf.Blocks.NBTBlock(rid) {
+	if w.conf.Blocks.NBTBlock(rid) && !emptyUnknownBlockNBT(b) {
 		c.BlockEntities[pos] = b
 	} else {
 		delete(c.BlockEntities, pos)
@@ -605,7 +610,11 @@ func (tx *Tx) setBlockEntity(pos cube.Pos, b Block) {
 		tx.setBlock(pos, b, nil)
 		return
 	}
-	c.BlockEntities[pos] = b
+	if emptyUnknownBlockNBT(b) {
+		delete(c.BlockEntities, pos)
+	} else {
+		c.BlockEntities[pos] = b
+	}
 	c.modified = true
 	tx.blockRevision++
 }
@@ -686,7 +695,7 @@ func (tx *Tx) buildStructure(pos cube.Pos, s Structure) {
 								sub.SetBlock(uint8(xOffset), uint8(yOffset), uint8(zOffset), 0, rid)
 
 								nbtPos := cube.Pos{xOffset, yOffset, zOffset}
-								if w.conf.Blocks.NBTBlock(rid) {
+								if w.conf.Blocks.NBTBlock(rid) && !emptyUnknownBlockNBT(b) {
 									c.BlockEntities[nbtPos] = b
 								} else {
 									delete(c.BlockEntities, nbtPos)
@@ -1753,7 +1762,9 @@ func (w *World) columnTo(col *Column, pos ChunkPos) *chunk.Column {
 		}
 	}
 	for pos, be := range col.BlockEntities {
-		c.BlockEntities = append(c.BlockEntities, chunk.BlockEntity{Pos: pos, Data: be.(NBTer).EncodeNBT()})
+		if data := be.(NBTer).EncodeNBT(); data != nil {
+			c.BlockEntities = append(c.BlockEntities, chunk.BlockEntity{Pos: pos, Data: data})
+		}
 	}
 	for _, t := range scheduled {
 		c.ScheduledBlocks = append(c.ScheduledBlocks, chunk.ScheduledBlockUpdate{Pos: t.pos, Block: w.conf.Blocks.BlockRuntimeID(t.b), Tick: t.t})
@@ -1800,7 +1811,14 @@ func (w *World) columnFrom(c *chunk.Column, _ ChunkPos) *Column {
 			w.conf.Log.Error("read column: block with nbt does not implement NBTer", "block", fmt.Sprintf("%#v", b))
 			continue
 		}
-		col.BlockEntities[be.Pos] = nb.DecodeNBT(be.Data).(Block)
+		decoded := nb.DecodeNBT(be.Data).(Block)
+		if emptyUnknownBlockNBT(decoded) {
+			// Drop old coordinate-only phantom actors on load and persist the
+			// cleaned column through the normal save path.
+			col.modified = true
+			continue
+		}
+		col.BlockEntities[be.Pos] = decoded
 	}
 	if w.conf.TickPolicy.Enabled(TickScheduledBlocks) {
 		scheduled, savedTick := make([]scheduledTick, 0, len(c.ScheduledBlocks)), c.Tick

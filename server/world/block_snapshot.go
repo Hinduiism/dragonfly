@@ -89,6 +89,9 @@ func (tx *Tx) SnapshotBlocks(min, max cube.Pos) (*BlockSnapshot, bool) {
 						if registry.NBTBlock(primaryRID) {
 							blockEntity, ok := column.BlockEntities[pos]
 							if !ok {
+								if IsUnimplementedBlock(registry.BlockByRuntimeIDOrAir(primaryRID)) {
+									continue
+								}
 								return nil, false
 							}
 							if snapshot.blockEntities == nil {

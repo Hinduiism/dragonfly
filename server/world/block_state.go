@@ -109,7 +109,27 @@ func (b unknownBlock) Hash() (uint64, uint64) {
 
 // EncodeNBT ...
 func (b unknownBlock) EncodeNBT() map[string]any {
+	if emptyUnknownBlockNBT(b) {
+		return nil
+	}
 	return maps.Clone(b.data)
+}
+
+// emptyUnknownBlockNBT reports whether an unimplemented block has no actor data.
+// Unknown blocks support NBT to preserve unsupported block actors, but that does
+// not make every unsupported terrain block a block actor. Coordinates alone are
+// an artefact of serialising an empty actor and carry no block-specific data.
+func emptyUnknownBlockNBT(b Block) bool {
+	u, ok := b.(unknownBlock)
+	if !ok {
+		return false
+	}
+	for key := range u.data {
+		if key != "x" && key != "y" && key != "z" {
+			return false
+		}
+	}
+	return true
 }
 
 // DecodeNBT ...
