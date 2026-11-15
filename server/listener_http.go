@@ -11,7 +11,8 @@ import (
 	"github.com/soheilhy/cmux"
 )
 
-// serveNetherNetHTTP serves the same handler over every enabled signaling path.
+// serveNetherNetHTTP serves signaling over HTTP or HTTPS. With TLS enabled,
+// permitted plaintext HTTP requests redirect to the matching HTTPS URL.
 // Wrapping the TLS sublistener, rather than hiding TLS inside a generic Conn,
 // lets net/http perform the handshake and populate Request.TLS normally.
 func serveNetherNetHTTP(srv *http.Server, tcp net.Listener, tlsConfig *tls.Config, allowHTTP bool, log *slog.Logger) {
@@ -30,6 +31,23 @@ func serveNetherNetHTTP(srv *http.Server, tcp net.Listener, tlsConfig *tls.Confi
 		serve(tls.NewListener(tcp, tlsConfig))
 		return
 	}
+
+	handler := srv.Handler
+	if handler == nil {
+		handler = http.DefaultServeMux
+	}
+	srv.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil {
+			target := *r.URL
+			target.Scheme = "https"
+			target.Host = r.Host
+			// A 308 preserves the method and SDP body when the client follows it.
+			w.Header().Set("Connection", "close")
+			http.Redirect(w, r, target.String(), http.StatusPermanentRedirect)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
 
 	mux := cmux.New(tcp)
 	// A silent connection must neither block other clients nor remain open

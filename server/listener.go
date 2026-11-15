@@ -215,8 +215,9 @@ type NetherNetConfig struct {
 	// one combined PEM path for both fields to rotate certificate and key atomically.
 	TLSCertFile string
 	TLSKeyFile  string
-	// AllowHTTP also accepts plaintext HTTP on Address when TLS is configured.
-	// This supports raw-IP clients using NetherNet's Trust On First Use flow.
+	// AllowHTTP also accepts plaintext HTTP on Address when TLS is configured,
+	// redirecting it to HTTPS while preserving the request method and body.
+	// Without certificate files, HTTP is served normally.
 	// The default is HTTPS only when certificate files are configured.
 	AllowHTTP bool
 }
