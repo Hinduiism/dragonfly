@@ -7,6 +7,7 @@ import (
 	"github.com/df-mc/dragonfly/server/entity"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/particle"
+	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -65,4 +66,25 @@ func effectName(p world.Particle) string {
 		return "lightning"
 	}
 	return "firework"
+}
+
+func TestClearAmbientWeatherKeepsLightningAndThunderEffects(t *testing.T) {
+	s, w := newEntityViewFixture(t)
+	s.OverrideWeather(false, false)
+	assertWeatherPackets(t, s, false, false)
+	if err := w.Do(func(tx *world.Tx) {
+		pos := mgl64.Vec3{0, 64, 0}
+		s.ViewParticleInTx(tx, pos, particle.Lightning{})
+		actor := packetOf[*packet.AddActor](t, s)
+		if actor.EntityType != "minecraft:lightning_bolt" {
+			t.Fatal("lightning effect was suppressed")
+		}
+		s.ViewSound(pos, sound.Thunder{})
+		audio := packetOf[*packet.LevelSoundEvent](t, s)
+		if audio.SoundType != packet.SoundEventThunder {
+			t.Fatal("thunder effect was suppressed")
+		}
+	}).Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }
