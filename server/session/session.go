@@ -575,7 +575,7 @@ func (s *Session) handleWorldSwitch(w *world.World, tx *world.Tx, c Controllable
 			s.removeEntityView(v)
 		}
 	}
-	s.clearEnvironmentViews()
+	s.resetPublicEnvironmentViews()
 	if s.conn.ClientCacheEnabled() {
 		s.blobMu.Lock()
 		s.blobs = map[uint64][]byte{}

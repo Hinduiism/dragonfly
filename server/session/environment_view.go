@@ -3,14 +3,17 @@ package session
 import (
 	"math/rand/v2"
 
+	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 type environmentViewState struct {
-	publicTime      int
-	publicTimeKnown bool
-	time            int
-	timeOverridden  bool
+	publicTime           int
+	publicTimeKnown      bool
+	publicTimeCycle      bool
+	publicTimeCycleKnown bool
+	time                 int
+	timeOverridden       bool
 
 	publicWeather      environmentWeather
 	publicWeatherKnown bool
@@ -24,7 +27,7 @@ type environmentWeather struct {
 }
 
 // OverrideTime persistently replaces public world time for this session until
-// ClearTimeOverride is called or the session changes worlds.
+// ClearTimeOverride is called.
 func (s *Session) OverrideTime(value int) {
 	if s == nil || s == Nop {
 		return
@@ -36,6 +39,7 @@ func (s *Session) OverrideTime(value int) {
 	}
 	s.environmentViews.time = value
 	s.environmentViews.timeOverridden = true
+	s.writeEnvironmentTimeCycle(false)
 	s.writeEnvironmentTime(value)
 }
 
@@ -53,10 +57,13 @@ func (s *Session) ClearTimeOverride() {
 	if s.environmentViews.publicTimeKnown {
 		s.writeEnvironmentTime(s.environmentViews.publicTime)
 	}
+	if s.environmentViews.publicTimeCycleKnown {
+		s.writeEnvironmentTimeCycle(s.environmentViews.publicTimeCycle)
+	}
 }
 
 // OverrideWeather persistently replaces public world weather for this session
-// until ClearWeatherOverride is called or the session changes worlds.
+// until ClearWeatherOverride is called.
 func (s *Session) OverrideWeather(raining, thunder bool) {
 	if s == nil || s == Nop {
 		return
@@ -103,6 +110,20 @@ func (s *Session) viewPublicTime(value int) {
 	s.writeEnvironmentTime(value)
 }
 
+// viewPublicTimeCycle remembers the world's rule while a personal clock is fixed.
+func (s *Session) viewPublicTimeCycle(enabled bool) {
+	if s == nil || s == Nop {
+		return
+	}
+	s.environmentViewsMu.Lock()
+	defer s.environmentViewsMu.Unlock()
+	s.environmentViews.publicTimeCycle, s.environmentViews.publicTimeCycleKnown = enabled, true
+	if s.environmentViews.timeOverridden {
+		enabled = false
+	}
+	s.writeEnvironmentTimeCycle(enabled)
+}
+
 func (s *Session) viewPublicWeather(raining, thunder bool) {
 	if s == nil || s == Nop {
 		return
@@ -119,7 +140,7 @@ func (s *Session) viewPublicWeather(raining, thunder bool) {
 }
 
 // clearEnvironmentViews drops overrides without sending restoration packets.
-// World switches publish the destination world's values immediately after it.
+// Disconnect uses a full reset; world switches retain the personal selections.
 func (s *Session) clearEnvironmentViews() {
 	if s == nil || s == Nop {
 		return
@@ -127,6 +148,23 @@ func (s *Session) clearEnvironmentViews() {
 	s.environmentViewsMu.Lock()
 	s.environmentViews = environmentViewState{}
 	s.environmentViewsMu.Unlock()
+}
+
+// resetPublicEnvironmentViews forgets the source world while retaining desired
+// personal overrides, including ones applied before the chunk loader catches up.
+func (s *Session) resetPublicEnvironmentViews() {
+	if s == nil || s == Nop {
+		return
+	}
+	s.environmentViewsMu.Lock()
+	s.environmentViews.publicTimeKnown = false
+	s.environmentViews.publicTimeCycleKnown = false
+	s.environmentViews.publicWeatherKnown = false
+	s.environmentViewsMu.Unlock()
+}
+
+func (s *Session) writeEnvironmentTimeCycle(enabled bool) {
+	s.sendGameRules([]protocol.GameRule{{Name: "dodaylightcycle", Value: enabled}})
 }
 
 func (s *Session) writeEnvironmentTime(value int) {

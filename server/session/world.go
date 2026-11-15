@@ -270,7 +270,7 @@ func (s *Session) ViewTime(time int) {
 
 // ViewTimeCycle ...
 func (s *Session) ViewTimeCycle(doDayLightCycle bool) {
-	s.sendGameRules([]protocol.GameRule{{Name: "dodaylightcycle", Value: doDayLightCycle}})
+	s.viewPublicTimeCycle(doDayLightCycle)
 }
 
 // ViewEntityTeleport ...

@@ -1,7 +1,7 @@
 package player
 
 // ViewTime persistently shows time instead of the current world's public time
-// until ViewWorldTime is called or the Player changes worlds.
+// until ViewWorldTime is called. The visible clock remains fixed across world changes.
 func (p *Player) ViewTime(time int) {
 	if p == nil {
 		return
@@ -18,7 +18,7 @@ func (p *Player) ViewWorldTime() {
 }
 
 // ViewWeather persistently shows weather instead of the current world's public
-// weather until ViewWorldWeather is called or the Player changes worlds.
+// weather until ViewWorldWeather is called, including across world changes.
 func (p *Player) ViewWeather(raining, thunder bool) {
 	if p == nil {
 		return
