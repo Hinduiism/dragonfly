@@ -156,7 +156,7 @@ func (l *Loader) viewChunk(tx *Tx, pos ChunkPos, c *Column) {
 		return
 	}
 	l.viewer.ViewChunk(pos, l.w.Dimension(), c.BlockEntities, c.Chunk)
-	l.w.addViewer(tx, c, l)
+	l.w.addViewer(tx, pos, c, l)
 
 	l.loaded[pos] = c
 }

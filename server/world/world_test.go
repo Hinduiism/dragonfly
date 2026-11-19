@@ -225,6 +225,35 @@ func TestUnloadChunkIfUnusedUnmodified(t *testing.T) {
 	}
 }
 
+func TestTransientActorIsVisibleWithoutDirtyingChunk(t *testing.T) {
+	w := Config{Synchronous: true, EntityStorage: EntityStoragePersistent}.New()
+	defer w.Close()
+	w.Do(func(tx *Tx) {
+		pos := ChunkPos{}
+		col := tx.chunk(pos)
+		transient := tx.AddEntity(NewEntity(testTransientType{}, testEntityConfig{}))
+		if col.modified || len(col.Entities) != 1 {
+			t.Error("adding a transient actor changed persistence or omitted the live actor")
+		}
+
+		persistent := tx.AddEntity(NewEntity(testEntityType{}, testEntityConfig{}))
+		saved := w.columnTo(col, pos)
+		if len(saved.Entities) != 1 {
+			t.Errorf("encoded %d actors, want 1 persistent actor", len(saved.Entities))
+		}
+		_ = tx.RemoveEntity(persistent).Close()
+		col.modified = false
+		_ = tx.RemoveEntity(transient).Close()
+		if col.modified {
+			t.Error("removing a transient actor dirtied the chunk")
+		}
+	})
+}
+
+type testTransientType struct{ testEntityType }
+
+func (testTransientType) Transient() bool { return true }
+
 type countingStoreProvider struct {
 	NopProvider
 	stores atomic.Int64

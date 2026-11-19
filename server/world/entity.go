@@ -35,6 +35,18 @@ type EntityType interface {
 	EncodeNBT(data *EntityData) map[string]any
 }
 
+// TransientEntityType may be implemented by live-only entity types. Their
+// actors remain visible and interactive but never enter a saved chunk.
+type TransientEntityType interface {
+	EntityType
+	Transient() bool
+}
+
+func (e *EntityHandle) transient() bool {
+	typ, ok := e.t.(TransientEntityType)
+	return ok && typ.Transient()
+}
+
 // EntityConfig is used to configure the initial settings of an Entity upon
 // creation using NewEntity.
 type EntityConfig interface {

@@ -67,6 +67,8 @@ type World struct {
 	chunkRequests map[ChunkPos]*chunkRequest
 	chunkWorkers  *chunkWorkerPool
 
+	chunkViewerWatches map[ChunkPos]map[*chunkViewerWatch]struct{}
+
 	// entities holds a map of entities currently loaded and the last ChunkPos
 	// that the Entity was in. These are tracked so that a call to RemoveEntity
 	// can find the correct Entity.
@@ -1045,7 +1047,8 @@ func (w *World) addEntityAt(tx *Tx, handle *EntityHandle, pos mgl64.Vec3) Entity
 	w.entities[handle] = chunkPos
 
 	c := tx.chunk(chunkPos)
-	c.Entities, c.modified = append(c.Entities, handle), true
+	c.Entities = append(c.Entities, handle)
+	c.modified = c.modified || !handle.transient()
 
 	e := handle.mustEntity(tx)
 	for _, v := range c.viewers {
@@ -1074,7 +1077,8 @@ func (w *World) removeEntity(e Entity, tx *Tx) *EntityHandle {
 	}
 
 	c := tx.chunk(pos)
-	c.Entities, c.modified = sliceutil.DeleteVal(c.Entities, handle), true
+	c.Entities = sliceutil.DeleteVal(c.Entities, handle)
+	c.modified = c.modified || !handle.transient()
 
 	w.removeEntityFromViewLayers(e)
 	for _, v := range c.viewers {
@@ -1502,13 +1506,14 @@ func (w *World) addWorldViewer(l *Loader) {
 // addViewer adds a viewer to the World at a given position. Any events that
 // happen in the chunk at that position, such as block and entity changes, will
 // be sent to the viewer.
-func (w *World) addViewer(tx *Tx, c *Column, loader *Loader) {
+func (w *World) addViewer(tx *Tx, pos ChunkPos, c *Column, loader *Loader) {
 	c.viewers = append(c.viewers, loader.viewer)
 	c.loaders = append(c.loaders, loader)
 
 	for _, entity := range c.Entities {
 		showEntity(entity.mustEntity(tx), loader.viewer)
 	}
+	w.notifyChunkViewerWatches(tx, pos)
 }
 
 // removeViewer removes a viewer from a chunk position. All entities will be
@@ -1531,6 +1536,7 @@ func (w *World) removeViewer(tx *Tx, pos ChunkPos, loader *Loader) {
 	for _, entity := range c.Entities {
 		loader.viewer.HideEntity(entity.mustEntity(tx))
 	}
+	w.notifyChunkViewerWatches(tx, pos)
 }
 
 // Handler returns the Handler of the world.
@@ -1755,6 +1761,9 @@ func (w *World) columnTo(col *Column, pos ChunkPos) *chunk.Column {
 	}
 	if w.conf.EntityStorage == EntityStoragePersistent {
 		for _, e := range col.Entities {
+			if e.transient() {
+				continue
+			}
 			data := e.encodeNBT()
 			maps.Copy(data, e.t.EncodeNBT(&e.data))
 			data["identifier"] = e.t.EncodeEntity()
