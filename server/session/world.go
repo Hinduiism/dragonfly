@@ -1286,20 +1286,34 @@ func (s *Session) entityMetadata(e world.Entity) protocol.EntityMetadata {
 	return metadata
 }
 
-// ViewEntityAnimation ...
+// ViewEntityAnimation queues a cosmetic clip for a published actor when there
+// is room. A slow viewer may miss the clip without delaying the world owner.
 func (s *Session) ViewEntityAnimation(e world.Entity, a world.EntityAnimation) {
-	if s.entityHidden(e) {
+	if s == Nop || s.entityHidden(e) {
 		return
 	}
-	s.writePacket(&packet.AnimateEntity{
-		Animation:     a.Name(),
-		NextState:     a.NextState(),
-		StopCondition: a.StopCondition(),
-		Controller:    a.Controller(),
-		EntityRuntimeIDs: []uint64{
-			s.entityRuntimeID(e),
-		},
-	})
+	s.entityMutex.RLock()
+	id := s.entityRuntimeIDs[e.H()]
+	s.entityMutex.RUnlock()
+	if id == 0 {
+		return
+	}
+	select {
+	case <-s.closeBackground:
+		return
+	default:
+	}
+	select {
+	case <-s.closeBackground:
+	case s.packets <- &packet.AnimateEntity{
+		Animation:        a.Name(),
+		NextState:        a.NextState(),
+		StopCondition:    a.StopCondition(),
+		Controller:       a.Controller(),
+		EntityRuntimeIDs: []uint64{id},
+	}:
+	default:
+	}
 }
 
 // OpenBlockContainer ...

@@ -324,6 +324,45 @@ func TestSuppressedConnectedPlayerDropsIdentifyingUpdates(t *testing.T) {
 	}
 }
 
+func TestEntityAnimationSkipsUnknownActorsAndFullQueues(t *testing.T) {
+	handle := world.EntitySpawnOpts{}.New(visibilityEntityType{}, visibilityEntityConfig{})
+	actor := visibilityEntity{handle: handle}
+	viewer, _ := newPublicationSession("Viewer", 1, nil)
+	clip := world.NewEntityAnimation("animation.example.greet")
+	viewer.ViewEntityAnimation(actor, clip)
+	if len(viewer.packets) != 0 {
+		t.Fatal("unknown actor emitted an animation")
+	}
+
+	viewer.entityRuntimeIDs[handle] = 10
+	viewer.ViewEntityAnimation(actor, clip)
+	packets := drainPublicationPackets(viewer)
+	if len(packets) != 1 {
+		t.Fatalf("known actor emitted %d packets", len(packets))
+	}
+	if got, ok := packets[0].(*packet.AnimateEntity); !ok || got.Animation != clip.Name() ||
+		len(got.EntityRuntimeIDs) != 1 || got.EntityRuntimeIDs[0] != 10 {
+		t.Fatalf("animation packet = %#v", packets[0])
+	}
+
+	queued := &packet.PlayStatus{}
+	viewer.packets <- queued
+	done := make(chan struct{})
+	go func() {
+		viewer.ViewEntityAnimation(actor, clip)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		drainPublicationPackets(viewer)
+		t.Fatal("full send queue blocked animation delivery")
+	}
+	if packets := drainPublicationPackets(viewer); len(packets) != 1 || packets[0] != queued {
+		t.Fatalf("full queue was modified: %#v", packets)
+	}
+}
+
 func TestConnectedPlayerRevealSaturationClosesViewer(t *testing.T) {
 	l := new(sessionList)
 	withPublicationSessionList(t, l)
