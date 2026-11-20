@@ -634,7 +634,9 @@ func (s *Session) ChunkRadius() int32 {
 func (s *Session) handlePacket(pk packet.Packet, tx *world.Tx, c Controllable) (err error) {
 	handler, ok := s.handlers[pk.ID()]
 	if !ok {
-		s.conf.Log.Debug("unhandled packet", "packet", fmt.Sprintf("%T", pk), "data", fmt.Sprintf("%+v", pk)[1:])
+		if s.conf.Log.Enabled(context.Background(), slog.LevelDebug) {
+			s.conf.Log.Debug("unhandled packet", "packet", fmt.Sprintf("%T", pk), "data", fmt.Sprintf("%+v", pk)[1:])
+		}
 		return nil
 	}
 	if handler == nil {
