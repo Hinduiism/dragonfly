@@ -2383,7 +2383,11 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 
 	xp := 0
 	if breakable && !p.GameMode().CreativeInventory() {
-		if _, hasSilkTouch := held.Enchantment(enchantment.SilkTouch); !hasSilkTouch {
+		tool, ok := held.Item().(item.Tool)
+		if !ok {
+			tool = item.ToolNone{}
+		}
+		if _, hasSilkTouch := held.Enchantment(enchantment.SilkTouch); !hasSilkTouch && info.Harvestable(tool) {
 			xp = info.XPDrops.RandomValue()
 		}
 	}

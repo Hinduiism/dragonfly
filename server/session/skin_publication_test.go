@@ -58,8 +58,8 @@ func TestClassicSkinPacketHasExplicitAppearanceMetadata(t *testing.T) {
 			value.FullID = "appearance-id"
 			value.ModelConfig.Default = geometry
 			encoded := skinToProtocol(value)
-			if !encoded.Trusted || !encoded.OverrideAppearance || !encoded.PrimaryUser || encoded.PersonaSkin {
-				t.Fatalf("generated skin lacks classic appearance flags: trusted=%t override=%t primary=%t persona=%t", encoded.Trusted, encoded.OverrideAppearance, encoded.PrimaryUser, encoded.PersonaSkin)
+			if trusted, set := encoded.Trusted.Value(); !set || !trusted || !encoded.OverrideAppearance || !encoded.PrimaryUser || encoded.PersonaSkin {
+				t.Fatalf("generated skin lacks classic appearance flags: trusted=%t (set=%t) override=%t primary=%t persona=%t", trusted, set, encoded.OverrideAppearance, encoded.PrimaryUser, encoded.PersonaSkin)
 			}
 			armSize := uint8(protocol.ArmSizeWide)
 			if geometry == "geometry.humanoid.customSlim" {

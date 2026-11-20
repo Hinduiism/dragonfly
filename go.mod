@@ -2,21 +2,21 @@ module github.com/df-mc/dragonfly
 
 go 1.26.0
 
-replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261103042945-35be0a2af89c
+replace github.com/sandertv/gophertunnel => github.com/ValorNetworks/gophertunnel v0.0.0-20261120234802-69647dbca290
 
 replace github.com/sandertv/go-raknet => github.com/ValorNetworks/go-raknet v0.0.0-20261027003545-048ad3a29e84
 
 require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479
 	github.com/cespare/xxhash/v2 v2.3.0
-	github.com/df-mc/go-nethernet v1.0.26
+	github.com/df-mc/go-nethernet v1.0.27
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/df-mc/worldupgrader v1.0.22
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/pelletier/go-toml v1.9.5
-	github.com/pion/ice/v4 v4.4.4
-	github.com/pion/webrtc/v4 v4.2.21-0.20260920133716-91bfc6c2039f
+	github.com/pion/ice/v4 v4.4.8
+	github.com/pion/webrtc/v4 v4.2.26
 	github.com/sandertv/gophertunnel v1.63.0
 	github.com/segmentio/fasthash v1.0.3
 	github.com/soheilhy/cmux v0.1.5
@@ -37,19 +37,19 @@ require (
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/nxadm/tail v1.4.11 // indirect
 	github.com/pion/datachannel v1.6.3 // indirect
-	github.com/pion/dtls/v3 v3.1.9 // indirect
-	github.com/pion/interceptor v0.1.49 // indirect
+	github.com/pion/dtls/v3 v3.1.15 // indirect
+	github.com/pion/interceptor v0.1.51 // indirect
 	github.com/pion/logging v0.2.4 // indirect
-	github.com/pion/mdns/v2 v2.2.1 // indirect
+	github.com/pion/mdns/v2 v2.2.2 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/rtcp v1.2.17 // indirect
-	github.com/pion/rtp v1.10.5 // indirect
-	github.com/pion/sctp v1.11.3 // indirect
+	github.com/pion/rtcp v1.2.20 // indirect
+	github.com/pion/rtp v1.10.6 // indirect
+	github.com/pion/sctp v1.12.0 // indirect
 	github.com/pion/sdp/v3 v3.0.20 // indirect
-	github.com/pion/srtp/v3 v3.1.0 // indirect
+	github.com/pion/srtp/v3 v3.1.3 // indirect
 	github.com/pion/stun/v4 v4.0.1 // indirect
-	github.com/pion/transport/v5 v5.0.1 // indirect
-	github.com/pion/turn/v5 v5.1.2 // indirect
+	github.com/pion/transport/v5 v5.1.4 // indirect
+	github.com/pion/turn/v5 v5.1.3 // indirect
 	github.com/sandertv/go-raknet v1.15.2-0.20260705184311-0d1fd09e2cf6 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	golang.org/x/crypto v0.48.0 // indirect

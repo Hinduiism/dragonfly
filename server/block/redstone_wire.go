@@ -31,7 +31,13 @@ func (r RedstoneWire) UseOnBlock(pos cube.Pos, face cube.Face, _ mgl64.Vec3, tx 
 	}
 	r.Connections = redstoneWireConnections(pos, loadedSource{tx: tx})
 	place(tx, pos, r, user, ctx)
-	return placed(ctx)
+	if !placed(ctx) {
+		return false
+	}
+	// Wire one block up or down beside this wire connects to it without
+	// neighbouring it, so it does not get a neighbour update from this wire.
+	updateDiagonalRedstoneWires(pos, tx)
+	return true
 }
 
 // RedstonePower returns the wire's current signal strength from connected faces.
