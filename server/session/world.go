@@ -50,11 +50,18 @@ func (s *Session) entityExplicitlyHidden(e world.Entity) bool {
 }
 
 func (s *Session) entityHidden(e world.Entity) bool {
-	if s.entityExplicitlyHidden(e) {
+	if s.entityExplicitlyHidden(e) || s.entityPresentation(e).Hidden {
 		return true
 	}
 	connected, visible := s.playerActorPublished(e.H())
 	return connected && !visible
+}
+
+func (s *Session) entityPresentation(e world.Entity) world.EntityPresentation {
+	if actor, ok := e.(world.ViewerPresentedEntity); ok {
+		return actor.PresentationFor(s.ent)
+	}
+	return world.EntityPresentation{}
 }
 
 // ViewEntity ...
@@ -69,7 +76,7 @@ func (s *Session) ViewEntity(e world.Entity) {
 			return
 		}
 	}
-	if s.entityExplicitlyHidden(e) {
+	if s.entityExplicitlyHidden(e) || s.entityPresentation(e).Hidden {
 		return
 	}
 	var runtimeID uint64
@@ -189,7 +196,7 @@ func (s *Session) ViewEntityGameMode(e world.Entity) {
 
 // HideEntity ...
 func (s *Session) HideEntity(e world.Entity) {
-	if s.entityRuntimeID(e) == selfEntityRuntimeID {
+	if e.H() == s.ent {
 		return
 	}
 	if s.hideConnectedPlayer(e, true) {
@@ -1258,15 +1265,23 @@ func (s *Session) ViewEntityState(e world.Entity) {
 // applied through its ViewLayer.
 func (s *Session) entityMetadata(e world.Entity) protocol.EntityMetadata {
 	metadata := s.parseEntityMetadata(e)
+	presentation := s.entityPresentation(e)
+	nameTag, nameTagSet := presentation.NameTag, presentation.OverrideNameTag
 	if s.viewLayer == nil {
+		if nameTagSet {
+			_, alwaysShow, _ := nameTagState(e)
+			writeNameTagMetadata(metadata, nameTag, alwaysShow)
+		}
 		return metadata
 	}
 	nt, ntSet := s.viewLayer.NameTag(e)
 	as, asSet := s.viewLayer.AlwaysShowNameTag(e)
-	if ntSet || asSet {
-		nameTag, alwaysShow, _ := nameTagState(e)
+	if nameTagSet || ntSet || asSet {
+		publicNameTag, alwaysShow, _ := nameTagState(e)
 		if ntSet {
 			nameTag = nt
+		} else if !nameTagSet {
+			nameTag = publicNameTag
 		}
 		if asSet {
 			alwaysShow = as

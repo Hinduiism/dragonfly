@@ -80,6 +80,28 @@ func (s *Session) ViewLayerEntityChanged(e world.Entity) {
 	s.ViewEntityState(e)
 }
 
+// RefreshEntityPresentation applies an actor's current presentation. Call it
+// on the world owner for a session currently viewing the actor's chunk.
+func (s *Session) RefreshEntityPresentation(e world.Entity) {
+	if s == Nop || e == nil || e.H() == s.ent {
+		return
+	}
+	if _, ok := e.(world.ViewerPresentedEntity); !ok {
+		return
+	}
+	viewing := s.viewingEntity(e.H())
+	switch {
+	case s.entityHidden(e):
+		if viewing {
+			s.HideEntity(e)
+		}
+	case viewing:
+		s.ViewEntityState(e)
+	default:
+		s.ViewEntity(e)
+	}
+}
+
 // viewingEntity checks if this session currently has a runtime ID assigned to the entity handle.
 func (s *Session) viewingEntity(handle *world.EntityHandle) bool {
 	s.entityMutex.RLock()
