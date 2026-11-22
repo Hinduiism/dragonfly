@@ -22,6 +22,16 @@ func (p *Player) criticalHitDamage(damage float64) float64 {
 	return damage * 1.5
 }
 
+// EnchantedHitParticlesHandler optionally controls Sharpness hit particles.
+type EnchantedHitParticlesHandler interface {
+	ShowEnchantedHitParticles() bool
+}
+
+func (p *Player) showEnchantedHitParticles() bool {
+	h, ok := p.Handler().(EnchantedHitParticlesHandler)
+	return !ok || h.ShowEnchantedHitParticles()
+}
+
 // MeleeCooldownHandler is optional. It is consulted on the attacker after
 // ordinary attack authorization and only for normal direct player melee.
 // Returning true authorizes one attack to use a fresh ordinary hit window.
