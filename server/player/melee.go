@@ -233,7 +233,7 @@ func (p *Player) attackPlayer(target *Player) bool {
 	}
 	if sharpness, ok := held.Enchantment(enchantment.Sharpness); ok {
 		damage += enchantment.Sharpness.Addend(sharpness.Level())
-		if policy != HitKnockbackOnly {
+		if policy != HitKnockbackOnly && p.showEnchantedHitParticles() {
 			for _, viewer := range p.tx.Viewers(target.Position()) {
 				viewer.ViewEntityAction(target, entity.EnchantedHitAction{})
 			}
