@@ -7,12 +7,23 @@ import (
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/inventory"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // InventoryTransactionHandler handles the InventoryTransaction packet.
 type InventoryTransactionHandler struct{}
+
+// ItemUseInput carries the original timing signals for a use transaction.
+// Stop means the same input frame also ended this use.
+type ItemUseInput struct {
+	Trigger uint32
+	Start   bool
+	Stop    bool
+	// StackIDMatches is present when the client reported a stack ID.
+	StackIDMatches protocol.Optional[bool]
+}
 
 // Handle ...
 func (h *InventoryTransactionHandler) Handle(p packet.Packet, s *Session, tx *world.Tx, c Controllable) (err error) {
@@ -69,7 +80,7 @@ func (h *InventoryTransactionHandler) Handle(p packet.Packet, s *Session, tx *wo
 		}
 		return h.handleUseItemOnEntityTransaction(data, s, tx, c)
 	case *protocol.UseItemTransactionData:
-		return h.handleUseItemTransaction(data, s, c)
+		return h.handleUseItemTransaction(data, ItemUseInput{Trigger: data.TriggerType}, s, c)
 	case *protocol.ReleaseItemTransactionData:
 		if data.Hand == protocol.HandSlotOffHand {
 			h.resendInventories(s)
@@ -78,7 +89,7 @@ func (h *InventoryTransactionHandler) Handle(p packet.Packet, s *Session, tx *wo
 		if data.Hand != protocol.HandSlotMainHand {
 			return fmt.Errorf("invalid hand %d in item release", data.Hand)
 		}
-		if valid, verifyErr := s.VerifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c); verifyErr != nil || !valid {
+		if valid, verifyErr := s.verifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c, true); verifyErr != nil || !valid {
 			return verifyErr
 		}
 		return h.handleReleaseItemTransaction(c)
@@ -186,7 +197,7 @@ func (h *InventoryTransactionHandler) handleUseItemOnEntityTransaction(data *pro
 }
 
 // handleUseItemTransaction ...
-func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.UseItemTransactionData, s *Session, c Controllable) error {
+func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.UseItemTransactionData, input ItemUseInput, s *Session, c Controllable) error {
 	if data.Hand == protocol.HandSlotOffHand {
 		h.resendInventories(s)
 		return nil
@@ -194,10 +205,14 @@ func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.Us
 	if data.Hand != protocol.HandSlotMainHand {
 		return fmt.Errorf("invalid hand %d in item use", data.Hand)
 	}
-	// Any ClickAir may finish an active meal, regardless of its input origin.
-	completion := data.ActionType == protocol.UseItemActionClickAir
-	if valid, err := s.verifyHeldItemUse(int(data.HotBarSlot), stackToItem(s.br, data.HeldItem.Stack), c, completion); err != nil || !valid {
+	slot := int(data.HotBarSlot)
+	completion := !input.Start && (data.ActionType == protocol.UseItemActionClickAir || data.ActionType == protocol.UseItemActionClickBlock)
+	if valid, err := s.verifyHeldItemUse(slot, stackToItem(s.br, data.HeldItem.Stack), c, completion); err != nil || !valid {
 		return err
+	}
+	if data.HeldItem.StackNetworkID > 0 {
+		held, _ := c.HeldItems()
+		input.StackIDMatches = protocol.Option(data.HeldItem.StackNetworkID == item_id(held))
 	}
 	pos := cube.Pos{int(data.BlockPosition[0]), int(data.BlockPosition[1]), int(data.BlockPosition[2])}
 	if data.ClientPrediction == protocol.ClientPredictionSuccess || data.ActionType == protocol.UseItemActionBreakBlock {
@@ -213,10 +228,17 @@ func (h *InventoryTransactionHandler) handleUseItemTransaction(data *protocol.Us
 	case protocol.UseItemActionBreakBlock:
 		c.BreakBlock(pos)
 	case protocol.UseItemActionClickBlock:
-		c.UseItemOnBlock(pos, cube.Face(data.BlockFace), vec32To64(data.ClickedPosition))
+		face, clickPos := cube.Face(data.BlockFace), vec32To64(data.ClickedPosition)
+		if user, ok := c.(interface {
+			UseItemOnBlockFromClient(cube.Pos, cube.Face, mgl64.Vec3, ItemUseInput)
+		}); ok {
+			user.UseItemOnBlockFromClient(pos, face, clickPos, input)
+		} else {
+			c.UseItemOnBlock(pos, face, clickPos)
+		}
 	case protocol.UseItemActionClickAir:
-		if user, ok := c.(interface{ UseItemWithTrigger(uint32) }); ok {
-			user.UseItemWithTrigger(data.TriggerType)
+		if user, ok := c.(interface{ UseItemFromClient(ItemUseInput) }); ok {
+			user.UseItemFromClient(input)
 		} else {
 			c.UseItem()
 		}

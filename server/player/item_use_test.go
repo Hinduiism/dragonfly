@@ -2,16 +2,20 @@ package player
 
 import (
 	"fmt"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/df-mc/dragonfly/server/block"
+	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/item"
 	"github.com/df-mc/dragonfly/server/item/potion"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
-	"slices"
-	"testing"
-	"time"
 )
 
 func TestCancelledFoodUseSynchronisesBeforeImmediateRestart(t *testing.T) {
@@ -86,7 +90,7 @@ func TestFoodCompletionCannotStartUseAfterCancellation(t *testing.T) {
 		if p.UsingItem() || held.Count() != 2 || p.Absorption() != 0 {
 			t.Fatal("late simulation completion created a phantom cycle or consumed the replacement")
 		}
-		p.UseItemWithTrigger(protocol.TriggerTypePlayerInput)
+		p.StartUsingConsumable()
 		if !p.UsingItem() {
 			t.Fatal("fresh press after rejection did not start a meal")
 		}
@@ -280,6 +284,9 @@ func TestFoodPacketPathsPreserveStartAndCompletion(t *testing.T) {
 				if p.UsingItem() {
 					t.Fatal("duplicate wire completion started another cycle")
 				}
+				if !embedded {
+					stopFood(t, p)
+				}
 				send(trigger, true)
 				p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
 				emptyPrediction = true
@@ -360,6 +367,175 @@ func TestFoodPacketsDoNotUseTriggerAsMealPhase(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestFoodPairedFinishSurvivesItsStop(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		elapsed time.Duration
+		want    int
+	}{
+		{"near the deadline", item.DefaultConsumeDuration - 100*time.Millisecond, 1},
+		{"mid bite", item.DefaultConsumeDuration / 2, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+				p.SetHeldItems(item.NewStack(item.GoldenApple{}, 2), item.Stack{})
+				sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypePlayerInput), true)
+				p.usingSince = time.Now().Add(-tc.elapsed)
+				sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypeSimulationTick), false, protocol.PlayerActionStopItemUseOn)
+				if p.Absorption() != 0 {
+					t.Fatal("paired stop skipped the remaining eating time")
+				}
+				p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+				p.tickConsumableUse()
+				p.tickConsumableUse()
+				held, _ := p.HeldItems()
+				if held.Count() != tc.want || p.UsingItem() || p.Absorption() != float64((2-tc.want)*4) {
+					t.Fatalf("after the deadline: stack=%d absorption=%v using=%v", held.Count(), p.Absorption(), p.UsingItem())
+				}
+			})
+		})
+	}
+}
+
+func TestFoodReleaseSettlesPendingBiteBeforeWorldTick(t *testing.T) {
+	for _, useAction := range []bool{false, true} {
+		withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+			p.SetHeldItems(item.NewStack(item.GoldenApple{}, 2), item.Stack{})
+			p.UseItemWithTrigger(protocol.TriggerTypePlayerInput)
+			p.UseItemWithTrigger(protocol.TriggerTypeSimulationTick)
+			p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+			if useAction {
+				stopFood(t, p)
+			} else {
+				held := foodClick(p, protocol.TriggerTypePlayerInput).HeldItem
+				pk := &packet.InventoryTransaction{TransactionData: &protocol.ReleaseItemTransactionData{
+					Hand: protocol.HandSlotMainHand, HeldItem: held,
+				}}
+				if err := (&session.InventoryTransactionHandler{}).Handle(pk, p.session(), p.tx, p); err != nil {
+					t.Fatal(err)
+				}
+			}
+			held, _ := p.HeldItems()
+			if held.Count() != 1 || p.UsingItem() || p.Absorption() != 4 {
+				t.Fatal("eligible bite was lost at release")
+			}
+			p.UseItemWithTrigger(protocol.TriggerTypePlayerInput)
+			if !p.UsingItem() {
+				t.Fatal("fresh press after release was ignored")
+			}
+		})
+	}
+}
+
+func TestFoodNextPressCanFollowDeferredFinish(t *testing.T) {
+	withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+		p.SetHeldItems(item.NewStack(item.GoldenApple{}, 2), item.Stack{})
+		sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypePlayerInput), true)
+		p.usingSince = time.Now().Add(-item.DefaultConsumeDuration + 100*time.Millisecond)
+		sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypeSimulationTick), false, protocol.PlayerActionStopItemUseOn)
+		sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypePlayerInput), true)
+		p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+		p.tickConsumableUse()
+		if held, _ := p.HeldItems(); held.Count() != 1 || !p.UsingItem() || p.consumableUse.completionRequested {
+			t.Fatal("next press did not open a fresh bite after the old bite finished")
+		}
+	})
+}
+
+func TestFoodRepeatedFinishDoesNotStartAnotherBite(t *testing.T) {
+	for _, trigger := range []uint32{protocol.TriggerTypeUnknown, protocol.TriggerTypePlayerInput, protocol.TriggerTypeSimulationTick} {
+		withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+			p.SetHeldItems(item.NewStack(item.GoldenApple{}, 3), item.Stack{})
+			sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypePlayerInput), true)
+			p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+			sendFoodFrame(t, p, foodClick(p, trigger), false, protocol.PlayerActionStopItemUseOn)
+			sendFoodFrame(t, p, foodClick(p, trigger), false)
+			if held, _ := p.HeldItems(); held.Count() != 2 || p.UsingItem() {
+				t.Fatalf("repeated finish with trigger %d started or completed a new bite", trigger)
+			}
+			sendFoodFrame(t, p, foodClick(p, protocol.TriggerTypeUnknown), true)
+			if !p.UsingItem() || p.consumableUse.completionRequested {
+				t.Fatal("explicit start did not open its own bite")
+			}
+		})
+	}
+}
+
+func TestFoodBlockUseKeepsTimer(t *testing.T) {
+	for _, redirect := range []bool{false, true} {
+		withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+			if redirect {
+				p.Handle(redirectFoodOnBlock{})
+			}
+			pos := cube.PosFromVec3(p.Position()).Side(cube.FaceDown)
+			p.tx.SetBlock(pos, block.Stone{}, nil)
+			p.SetHeldItems(item.NewStack(item.GoldenApple{}, 2), item.Stack{})
+			click := foodClick(p, protocol.TriggerTypePlayerInput)
+			click.ActionType = protocol.UseItemActionClickBlock
+			click.BlockFace = int32(cube.FaceUp)
+			click.BlockPosition = protocol.BlockPos{int32(pos[0]), int32(pos[1]), int32(pos[2])}
+			sendFoodFrame(t, p, click, true, protocol.PlayerActionStartItemUseOn)
+			if !p.UsingItem() {
+				t.Fatalf("redirect=%v: block start cancelled the bite", redirect)
+			}
+			p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+			click.TriggerType = protocol.TriggerTypeSimulationTick
+			sendFoodFrame(t, p, click, false, protocol.PlayerActionStopItemUseOn)
+			if held, _ := p.HeldItems(); held.Count() != 1 || p.UsingItem() || p.Absorption() != 4 {
+				t.Fatalf("redirect=%v: continuing use on stone did not finish the bite", redirect)
+			}
+		})
+	}
+}
+
+type redirectFoodOnBlock struct{ NopHandler }
+
+func (redirectFoodOnBlock) HandleItemUseOnBlock(ctx *Context, _ cube.Pos, _ cube.Face, _ mgl64.Vec3) {
+	ctx.UseItemInAir()
+}
+
+func stopFood(t *testing.T, p *Player) {
+	t.Helper()
+	err := (&session.PlayerActionHandler{}).Handle(&packet.PlayerAction{
+		EntityRuntimeID: 1, ActionType: protocol.PlayerActionStopItemUseOn,
+	}, p.session(), p.tx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func foodClick(p *Player, trigger uint32) protocol.UseItemTransactionData {
+	held, _ := p.HeldItems()
+	id, meta, _ := world.ItemRuntimeID(held.Item())
+	return protocol.UseItemTransactionData{ActionType: protocol.UseItemActionClickAir, TriggerType: trigger,
+		Hand: protocol.HandSlotMainHand, HeldItem: protocol.ItemInstance{Stack: protocol.ItemStack{
+			ItemType: protocol.ItemType{NetworkID: id, MetadataValue: uint32(meta)}, Count: uint16(held.Count()),
+		}}}
+}
+
+func sendFoodFrame(t *testing.T, p *Player, click protocol.UseItemTransactionData, start bool, actions ...int32) {
+	t.Helper()
+	flags := protocol.NewInputFlags(128)
+	flags.Set(packet.InputFlagPerformItemInteraction)
+	if start {
+		flags.Set(packet.InputFlagStartUsingItem)
+	}
+	pos := p.Position()
+	pk := &packet.PlayerAuthInput{InputData: flags, ItemInteractionData: protocol.Option(click),
+		Position: mgl32.Vec3{float32(pos[0]), float32(pos[1] + 1.62), float32(pos[2])}}
+	if len(actions) != 0 {
+		pk.InputData.Set(packet.InputFlagPerformBlockActions)
+		blockActions := make([]protocol.PlayerBlockAction, len(actions))
+		for i, action := range actions {
+			blockActions[i].Action = action
+		}
+		pk.BlockActions = protocol.Option(blockActions)
+	}
+	if err := (session.PlayerAuthInputHandler{}).Handle(pk, p.session(), p.tx, p); err != nil {
+		t.Fatal(err)
 	}
 }
 

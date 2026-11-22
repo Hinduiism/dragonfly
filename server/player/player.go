@@ -37,7 +37,6 @@ import (
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
-	"github.com/sandertv/gophertunnel/minecraft/protocol"
 	"golang.org/x/text/language"
 )
 
@@ -66,8 +65,9 @@ type playerData struct {
 	sleeping bool
 	sleepPos cube.Pos
 
-	usingSince    time.Time
-	consumableUse consumableUseState
+	usingSince       time.Time
+	consumableUse    consumableUseState
+	closedConsumable closedConsumableUse
 
 	glideTicks   int64
 	fireTicks    int64
@@ -1779,10 +1779,10 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
 func (p *Player) UseItem() {
-	p.useItem(protocol.TriggerTypeUnknown, false)
+	p.useItem(session.ItemUseInput{}, false)
 }
 
-func (p *Player) useItem(trigger uint32, fromClient bool) {
+func (p *Player) useItem(input session.ItemUseInput, fromClient bool) {
 	p.ValidateHeldItemUse()
 	i, _ := p.HeldItems()
 	if p.Dead() || !p.GameMode().AllowsInteraction() {
@@ -1861,22 +1861,17 @@ func (p *Player) useItem(trigger uint32, fromClient bool) {
 			p.rejectConsumableUse(i)
 			return
 		}
-		p.handleConsumableClick(usable, i, trigger, fromClient)
+		p.handleConsumableClick(usable, i, input, fromClient)
 	}
 }
 
 // ReleaseItem stops the Player using the held item. For items implementing item.Releasable, it also performs
 // their release action.
-// If the Player is not currently using any item, ReleaseItem returns immediately.
-// Food release cancels the meal. Its completion belongs to an item-use click,
-// independently of a bow's elapsed charge time.
+// For food, a pending bite at the end of its use duration is settled before release.
 func (p *Player) ReleaseItem() {
 	p.ValidateHeldItemUse()
-	if !p.usingItem {
-		return
-	}
-	if !p.consumableUse.stack.Empty() {
-		p.CancelItemUse()
+	if !p.usingItem || !p.consumableUse.stack.Empty() {
+		p.StopItemUse(false)
 		return
 	}
 	p.usingItem = false
@@ -1966,7 +1961,20 @@ func (p *Player) UsingItem() bool {
 // returns immediately.
 // UseItemOnBlock does nothing if the block at the cube.Pos passed is of the type block.Air.
 func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec3) {
-	p.CancelItemUse()
+	p.useItemOnBlock(pos, face, clickPos, session.ItemUseInput{}, false)
+}
+
+// UseItemOnBlockFromClient preserves an item's use signals when the block
+// interaction falls through or a handler redirects it.
+func (p *Player) UseItemOnBlockFromClient(pos cube.Pos, face cube.Face, clickPos mgl64.Vec3, input session.ItemUseInput) {
+	p.useItemOnBlock(pos, face, clickPos, input, true)
+}
+
+func (p *Player) useItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec3, input session.ItemUseInput, fromClient bool) {
+	p.ValidateHeldItemUse()
+	if p.usingItem && p.consumableUse.stack.Empty() {
+		p.CancelItemUse()
+	}
 	if _, ok := p.tx.Block(pos).(block.Air); ok || !p.canReach(pos.Vec3Centre()) {
 		// The client used its item on a block that does not exist server-side or one it couldn't reach. Stop trying
 		// to use the item immediately.
@@ -1976,6 +1984,9 @@ func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec
 	ctx := NewEventContext(p.tx, p)
 	if p.Handler().HandleItemUseOnBlock(ctx, pos, face, clickPos); ctx.Cancelled() {
 		p.resendNearbyBlocks(pos, face)
+		if ctx.useItemInAir {
+			p.useItem(input, fromClient)
+		}
 		return
 	}
 	i, left := p.HeldItems()
@@ -1987,6 +1998,7 @@ func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec
 			// The block was activated: Blocks such as doors must always have precedence over the item being
 			// used.
 			if useCtx := p.useContext(); act.Activate(pos, face, p.tx, p, useCtx) {
+				p.CancelItemUse()
 				p.SwingArm()
 				p.SetHeldItems(p.subtractItem(p.damageItem(i, useCtx.Damage), useCtx.CountSub), left)
 				p.addNewItem(useCtx)
@@ -2001,12 +2013,13 @@ func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec
 	case item.UsableOnBlock:
 		// The item does something when used on a block.
 		useCtx := p.useContext()
-		if !ib.UseOnBlock(pos, face, clickPos, p.tx, p, useCtx) {
+		if ib.UseOnBlock(pos, face, clickPos, p.tx, p, useCtx) {
+			p.CancelItemUse()
+			p.SwingArm()
+			p.SetHeldItems(p.subtractItem(p.damageItem(i, useCtx.Damage), useCtx.CountSub), left)
+			p.addNewItem(useCtx)
 			return
 		}
-		p.SwingArm()
-		p.SetHeldItems(p.subtractItem(p.damageItem(i, useCtx.Damage), useCtx.CountSub), left)
-		p.addNewItem(useCtx)
 	case world.Block:
 		// The item IS a block, meaning it is being placed.
 		replacedPos := pos
@@ -2024,6 +2037,10 @@ func (p *Player) UseItemOnBlock(pos cube.Pos, face cube.Face, clickPos mgl64.Vec
 			return
 		}
 		p.SetHeldItems(p.subtractItem(i, 1), left)
+		return
+	}
+	if _, edible := i.Item().(item.Consumable); fromClient && edible {
+		p.useItem(input, true)
 	}
 }
 

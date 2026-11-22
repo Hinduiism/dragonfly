@@ -824,7 +824,10 @@ func (s *Session) verifyHeldItemUse(slot int, expected item.Stack, c Controllabl
 		s.ViewEntityState(c)
 		return false, nil
 	}
-	return true, s.VerifyAndSetHeldSlot(slot, expected, c)
+	if err := s.VerifyAndSetHeldSlot(slot, expected, c); err != nil {
+		return false, err
+	}
+	return int(*s.heldSlot) == slot, nil
 }
 
 // ResendHeldItem corrects the selected stack without changing it.

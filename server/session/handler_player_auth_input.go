@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl32"
@@ -69,50 +70,49 @@ func (h PlayerAuthInputHandler) handleMovement(pk *packet.PlayerAuthInput, s *Se
 
 // handleActions handles the actions with the world that are present in the PlayerAuthInput packet.
 func (h PlayerAuthInputHandler) handleActions(pk *packet.PlayerAuthInput, s *Session, tx *world.Tx, c Controllable) error {
-	stopHandled := false
+	var actions []protocol.PlayerBlockAction
+	if pk.InputData.Load(packet.InputFlagPerformBlockActions) {
+		var ok bool
+		if actions, ok = pk.BlockActions.Value(); !ok {
+			return fmt.Errorf("block actions flag set without block actions")
+		}
+	}
+	start := pk.InputData.Load(packet.InputFlagStartUsingItem) || slices.ContainsFunc(actions, func(action protocol.PlayerBlockAction) bool {
+		return action.Action == protocol.PlayerActionStartUsingItem
+	})
+	stop := slices.ContainsFunc(actions, func(action protocol.PlayerBlockAction) bool {
+		return action.Action == protocol.PlayerActionStopItemUseOn
+	})
+	if stop && start {
+		// This stop belongs to the old press. Settle it before the new start.
+		handleStopItemUse(c, false)
+	}
+	pairedStop := false
 	if pk.InputData.Load(packet.InputFlagPerformItemInteraction) {
 		data, ok := pk.ItemInteractionData.Value()
 		if !ok {
 			return fmt.Errorf("item interaction flag set without item interaction data")
 		}
-		if data.TriggerType == protocol.TriggerTypeUnknown && pk.InputData.Load(packet.InputFlagStartUsingItem) {
-			data.TriggerType = protocol.TriggerTypePlayerInput
-		}
-		// An explicit fresh start may share a frame with the old press's stop.
-		// A completion without this flag must be processed before its own stop.
-		if pk.InputData.Load(packet.InputFlagStartUsingItem) && pk.InputData.Load(packet.InputFlagPerformBlockActions) {
-			actions, ok := pk.BlockActions.Value()
-			if !ok {
-				return fmt.Errorf("block actions flag set without block actions")
-			}
-			for _, action := range actions {
-				if action.Action == protocol.PlayerActionStopItemUseOn {
-					if err := handlePlayerAction(action.Action, action.Face, action.BlockPos, selfEntityRuntimeID, s, c); err != nil {
-						return err
-					}
-					stopHandled = true
-				}
-			}
-		}
-		if err := h.handleUseItemData(data, s, c); err != nil {
+		pairedStop = stop && !start && data.Hand == protocol.HandSlotMainHand &&
+			(data.ActionType == protocol.UseItemActionClickAir || data.ActionType == protocol.UseItemActionClickBlock)
+		input := ItemUseInput{Trigger: data.TriggerType, Start: start, Stop: pairedStop}
+		if err := (&InventoryTransactionHandler{}).handleUseItemTransaction(&data, input, s, c); err != nil {
 			return err
 		}
+	} else if start {
+		handleStartUsingItem(c)
 	}
-	if pk.InputData.Load(packet.InputFlagPerformBlockActions) {
-		actions, ok := pk.BlockActions.Value()
-		if !ok {
-			return fmt.Errorf("block actions flag set without block actions")
-		}
-		if stopHandled {
-			remaining := make([]protocol.PlayerBlockAction, 0, len(actions))
-			for _, action := range actions {
-				if action.Action != protocol.PlayerActionStopItemUseOn {
-					remaining = append(remaining, action)
-				}
+	for _, action := range actions {
+		switch action.Action {
+		case protocol.PlayerActionStartUsingItem:
+			continue
+		case protocol.PlayerActionStopItemUseOn:
+			if !start {
+				handleStopItemUse(c, pairedStop)
 			}
-			actions = remaining
+			continue
 		}
-		if err := h.handleBlockActions(actions, s, c); err != nil {
+		if err := handlePlayerAction(action.Action, action.Face, action.BlockPos, selfEntityRuntimeID, s, c); err != nil {
 			return err
 		}
 	}
@@ -208,19 +208,4 @@ func (h PlayerAuthInputHandler) handleInputFlags(flags protocol.InputFlags, s *S
 			c.StopFlying()
 		}
 	}
-}
-
-// handleUseItemData handles the protocol.UseItemTransactionData found in a packet.PlayerAuthInput.
-func (h PlayerAuthInputHandler) handleUseItemData(data protocol.UseItemTransactionData, s *Session, c Controllable) error {
-	return (&InventoryTransactionHandler{}).handleUseItemTransaction(&data, s, c)
-}
-
-// handleBlockActions handles a slice of protocol.PlayerBlockAction present in a PlayerAuthInput packet.
-func (h PlayerAuthInputHandler) handleBlockActions(a []protocol.PlayerBlockAction, s *Session, c Controllable) error {
-	for _, action := range a {
-		if err := handlePlayerAction(action.Action, action.Face, action.BlockPos, selfEntityRuntimeID, s, c); err != nil {
-			return err
-		}
-	}
-	return nil
 }

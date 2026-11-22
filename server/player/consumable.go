@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server/item"
+	"github.com/df-mc/dragonfly/server/session"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/sound"
 	"github.com/go-gl/mathgl/mgl64"
@@ -18,11 +19,47 @@ type consumableUseState struct {
 	revision, generation uint64
 	committing, applying bool
 	completionRequested  bool
+	finishWithStop       bool
+	restart              bool
 	lastActivity         time.Time
 }
 
+// closedConsumableUse prevents stray finish inputs from starting a second meal.
+type closedConsumableUse struct {
+	world    *world.World
+	slot     int
+	revision uint64
+	released bool
+}
+
+// Cap the wait after a paired finish and stop. The full use timer still applies.
+const consumableFinishGrace = 100 * time.Millisecond
+
 func (p *Player) clearConsumableUse() {
-	p.consumableUse = consumableUseState{generation: p.consumableUse.generation + 1}
+	use := p.consumableUse
+	if !use.stack.Empty() {
+		p.closedConsumable = closedConsumableUse{world: use.world, slot: use.slot, revision: use.revision}
+	}
+	p.consumableUse = consumableUseState{generation: use.generation + 1}
+}
+
+// StopItemUse handles a client release. A pending meal that has reached its
+// deadline can finish here, even if its world tick has not run yet.
+func (p *Player) StopItemUse(paired bool) {
+	p.ValidateHeldItemUse()
+	use := &p.consumableUse
+	if !paired {
+		use.restart = false
+	}
+	if use.stack.Empty() || !p.finishConsumableIfReady(use.stack.Item().(item.Consumable)) {
+		if use.finishWithStop {
+			return
+		}
+		p.CancelItemUse()
+	}
+	if !paired && p.closedConsumable.world == p.tx.World() && p.closedConsumable.slot == int(*p.heldSlot) {
+		p.closedConsumable.released = true
+	}
 }
 
 // CancelItemUse stops use without firing a bow or completing a meal. Actual bow
@@ -80,9 +117,21 @@ func (p *Player) ValidateHeldItemUse() {
 	}
 }
 
-// UseItemWithTrigger retains the input origin, which is not a meal phase.
-// Unknown can start use, and PlayerInput can finish an active meal.
-func (p *Player) UseItemWithTrigger(trigger uint32) { p.useItem(trigger, true) }
+// UseItemWithTrigger handles a use transaction without a separate start signal.
+func (p *Player) UseItemWithTrigger(trigger uint32) {
+	p.UseItemFromClient(session.ItemUseInput{Trigger: trigger})
+}
+
+// UseItemFromClient preserves the input frame's start and stop signals.
+func (p *Player) UseItemFromClient(input session.ItemUseInput) { p.useItem(input, true) }
+
+// StartUsingConsumable handles a start signal without an item transaction.
+func (p *Player) StartUsingConsumable() {
+	held, _ := p.HeldItems()
+	if _, ok := held.Item().(item.Consumable); ok {
+		p.UseItemFromClient(session.ItemUseInput{Start: true})
+	}
+}
 
 // CanCompleteConsumableUse permits count-zero prediction for the last food
 // only when the referenced slot still belongs to an active, valid meal.
@@ -91,38 +140,71 @@ func (p *Player) CanCompleteConsumableUse(slot int) bool {
 	return p.usingItem && !p.consumableUse.stack.Empty() && p.consumableUse.slot == slot && !p.consumableUse.committing
 }
 
-func (p *Player) handleConsumableClick(food item.Consumable, held item.Stack, trigger uint32, fromClient bool) {
+func (p *Player) handleConsumableClick(food item.Consumable, held item.Stack, input session.ItemUseInput, fromClient bool) {
 	if held.Empty() {
 		return
 	}
 	if !p.usingItem || p.consumableUse.stack.Empty() {
-		// A simulation-only repeat cannot begin a meal after cancellation.
-		// Unknown describes neither a start nor a finish, so allow it to start.
-		if fromClient && trigger != protocol.TriggerTypePlayerInput && trigger != protocol.TriggerTypeUnknown {
+		slot := int(*p.heldSlot)
+		revision, _ := p.inv.SlotRevision(slot)
+		if fromClient && !p.canStartConsumable(input, slot, revision) {
 			p.rejectConsumableUse(held)
 			return
 		}
 		p.clearConsumableUse()
-		p.consumableUse.stack, p.consumableUse.slot = held, int(*p.heldSlot)
+		p.closedConsumable = closedConsumableUse{}
+		p.consumableUse.stack, p.consumableUse.slot = held, slot
 		p.consumableUse.world = p.tx.World()
-		p.consumableUse.revision, _ = p.inv.SlotRevision(int(*p.heldSlot))
+		p.consumableUse.revision = revision
 		p.consumableUse.lastActivity = time.Now()
 		p.usingItem, p.usingSince = true, time.Now()
 		p.updateState()
 		return
 	}
-	if fromClient && trigger != protocol.TriggerTypePlayerInput && trigger != protocol.TriggerTypeSimulationTick && trigger != protocol.TriggerTypeUnknown {
+	if input.Start {
+		if p.consumableUse.finishWithStop {
+			p.consumableUse.restart = true
+			p.finishConsumableIfReady(food)
+		}
+		return
+	}
+	if fromClient && input.Trigger != protocol.TriggerTypePlayerInput && input.Trigger != protocol.TriggerTypeSimulationTick && input.Trigger != protocol.TriggerTypeUnknown {
 		p.rejectConsumableUse(held)
 		return
 	}
+	if input.Stop && food.ConsumeDuration()-p.useDuration() <= consumableFinishGrace {
+		p.consumableUse.finishWithStop = true
+	}
 	p.consumableUse.lastActivity = time.Now()
 	p.consumableUse.completionRequested = true
-	// Keep an early completion compressed by network jitter until the server's
-	// use duration is met. Release or invalidation still cancels this request.
-	if p.useDuration() < food.ConsumeDuration() {
-		return
+	p.finishConsumableIfReady(food)
+}
+
+func (p *Player) canStartConsumable(input session.ItemUseInput, slot int, revision uint64) bool {
+	if input.Start {
+		return true
+	}
+	if input.Stop || (input.Trigger != protocol.TriggerTypeUnknown && input.Trigger != protocol.TriggerTypePlayerInput) {
+		return false
+	}
+	closed := p.closedConsumable
+	// A standalone press can use the newly acknowledged stack after a meal
+	// or follow a release. The previous stack's finish is still ambiguous.
+	if closed.world != p.tx.World() || closed.slot != slot {
+		return true
+	}
+	if matches, ok := input.StackIDMatches.Value(); ok && closed.revision != revision {
+		return matches
+	}
+	return closed.released
+}
+
+func (p *Player) finishConsumableIfReady(food item.Consumable) bool {
+	if !p.consumableUse.completionRequested || p.useDuration() < food.ConsumeDuration() {
+		return false
 	}
 	p.consumeItem(food)
+	return true
 }
 
 // consumeItem applies a validated meal once, against its original inventory.
@@ -137,6 +219,18 @@ func (p *Player) consumeItem(food item.Consumable) {
 		return
 	}
 	use := p.consumableUse
+	if use.restart {
+		// The next press may arrive while a paired finish still has time left.
+		// Recheck after the old bite, including handler-owned consumption.
+		defer func() {
+			if p.usingItem || p.Dead() || p.tx.Closed() || p.tx.World() != use.world || int(*p.heldSlot) != use.slot {
+				return
+			}
+			if remaining, _ := p.HeldItems(); !remaining.Empty() && remaining.Comparable(held) {
+				p.StartUsingConsumable()
+			}
+		}()
+	}
 	p.consumableUse.committing = true
 	ctx := NewEventContext(p.tx, p)
 	if p.Handler().HandleItemConsume(ctx, held); ctx.Cancelled() {
@@ -185,8 +279,7 @@ func (p *Player) tickConsumableUse() {
 		p.CancelItemUse()
 		return
 	}
-	if p.consumableUse.completionRequested && p.useDuration() >= food.ConsumeDuration() {
-		p.consumeItem(food)
+	if p.finishConsumableIfReady(food) {
 		return
 	}
 	// Recovery for abandoned input, independent of normal food completion.
