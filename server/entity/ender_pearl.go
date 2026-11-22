@@ -12,8 +12,14 @@ import (
 // NewEnderPearl creates an EnderPearl entity. EnderPearl is a smooth, greenish-
 // blue item used to teleport.
 func NewEnderPearl(opts world.EntitySpawnOpts, owner world.Entity) *world.EntityHandle {
+	return NewEnderPearlWithGravity(opts, owner, enderPearlConf.Gravity)
+}
+
+// NewEnderPearlWithGravity creates an ender pearl with custom downward acceleration.
+func NewEnderPearlWithGravity(opts world.EntitySpawnOpts, owner world.Entity, gravity float64) *world.EntityHandle {
 	conf := enderPearlConf
 	conf.Owner = owner.H()
+	conf.Gravity = gravity
 	return opts.New(EnderPearlType, conf)
 }
 
