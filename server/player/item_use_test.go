@@ -122,6 +122,40 @@ func TestFoodClientPressesCannotConsumeImmediately(t *testing.T) {
 	})
 }
 
+func TestGoldenAppleRefillsAbsorptionWithoutStacking(t *testing.T) {
+	withStateTestPlayer(t, func(p *Player, _ *stateConn) {
+		eat := func(food world.Item) {
+			p.SetHeldItems(item.NewStack(food, 1), item.Stack{})
+			p.UseItem()
+			p.usingSince = time.Now().Add(-item.DefaultConsumeDuration)
+			p.UseItem()
+			if held, _ := p.HeldItems(); !held.Empty() {
+				t.Fatalf("%T was not consumed", food)
+			}
+		}
+		assertAbsorption := func(stage string, want float64) {
+			t.Helper()
+			if got := p.Absorption(); got != want {
+				t.Fatalf("%s absorption = %v, want %v", stage, got, want)
+			}
+		}
+
+		eat(item.GoldenApple{})
+		assertAbsorption("first apple", 4)
+		eat(item.GoldenApple{})
+		assertAbsorption("second apple", 4)
+		p.SetAbsorption(1)
+		eat(item.GoldenApple{})
+		assertAbsorption("refill", 4)
+
+		eat(item.EnchantedApple{})
+		assertAbsorption("enchanted apple", 16)
+		p.SetAbsorption(8)
+		eat(item.GoldenApple{})
+		assertAbsorption("stronger absorption", 8)
+	})
+}
+
 func TestFoodPendingCompletionCancelsOnReleaseAndAllowsPickup(t *testing.T) {
 	withStateTestPlayer(t, func(p *Player, _ *stateConn) {
 		p.SetHeldItems(item.NewStack(item.GoldenApple{}, 2), item.Stack{})
