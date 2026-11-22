@@ -1775,6 +1775,16 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 	p.session().ViewItemCooldown(item, cooldown)
 }
 
+// ViewItemCooldown updates the hotbar display without changing item use.
+// A native cooldown remains visible if it outlasts the requested display.
+func (p *Player) ViewItemCooldown(item world.Item, duration time.Duration) {
+	if item == nil {
+		return
+	}
+	name, _ := item.EncodeItem()
+	p.session().ViewItemCooldown(item, max(0, duration, time.Until(p.cooldowns[name])))
+}
+
 // UseItem uses the item currently held in the player's main hand in the air. Generally, nothing happens,
 // unless the held item implements the item.Usable interface, in which case it will be activated.
 // This generally happens for items such as throwable items like snowballs.
