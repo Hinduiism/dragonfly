@@ -1,10 +1,26 @@
 package player
 
 import (
+	"math"
 	"time"
 
 	"github.com/df-mc/dragonfly/server/world"
 )
+
+// CriticalHitMultiplierHandler optionally sets the attacker's melee critical
+// multiplier. Values below one or non-finite values use Dragonfly's default.
+type CriticalHitMultiplierHandler interface {
+	CriticalHitMultiplier() float64
+}
+
+func (p *Player) criticalHitDamage(damage float64) float64 {
+	if h, ok := p.Handler().(CriticalHitMultiplierHandler); ok {
+		if multiplier := h.CriticalHitMultiplier(); multiplier >= 1 && !math.IsInf(multiplier, 0) {
+			return damage * multiplier
+		}
+	}
+	return damage * 1.5
+}
 
 // MeleeCooldownHandler is optional. It is consulted on the attacker after
 // ordinary attack authorization and only for normal direct player melee.

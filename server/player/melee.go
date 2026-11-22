@@ -240,7 +240,7 @@ func (p *Player) attackPlayer(target *Player) bool {
 		}
 	}
 	if critical {
-		damage *= 1.5
+		damage = p.criticalHitDamage(damage)
 	}
 
 	fresh := false
