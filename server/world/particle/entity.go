@@ -70,6 +70,8 @@ type Splash struct {
 
 	// Colour is the colour that should be splashed.
 	Colour color.RGBA
+	// Potion marks the burst from a splash or lingering potion.
+	Potion bool
 }
 
 // Effect is a particle that shows up around an entity when it has effects on.

@@ -673,7 +673,7 @@ func (s *Session) SendEffect(e effect.Effect) {
 		Operation:       packet.MobEffectAdd,
 		EffectType:      int32(id),
 		Amplifier:       int32(e.Level() - 1),
-		Particles:       !e.ParticlesHidden(),
+		Particles:       !s.conf.HidePotionParticles && !e.ParticlesHidden(),
 		Duration:        int32(dur),
 		Ambient:         e.Ambient(),
 	})

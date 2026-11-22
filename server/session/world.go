@@ -43,6 +43,9 @@ type OffsetEntity interface {
 // entityExplicitlyHidden checks if a world.Entity is being explicitly hidden
 // from the Session.
 func (s *Session) entityExplicitlyHidden(e world.Entity) bool {
+	if s.conf.HidePotionParticles && e.H().Type() == entity.AreaEffectCloudType {
+		return true
+	}
 	s.entityMutex.RLock()
 	_, ok := s.hiddenEntities[e.H().UUID()]
 	s.entityMutex.RUnlock()
@@ -551,6 +554,9 @@ func (s *Session) ViewParticle(pos mgl64.Vec3, p world.Particle) {
 			Position:  vec64To32(pos),
 		})
 	case particle.Splash:
+		if pa.Potion && s.conf.HidePotionParticles {
+			return
+		}
 		if (pa.Colour == color.RGBA{}) {
 			pa.Colour, _ = effect.ResultingColour(nil)
 		}

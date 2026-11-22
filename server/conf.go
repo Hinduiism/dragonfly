@@ -40,6 +40,8 @@ type Config struct {
 	// FormImagesEnabled controls the acknowledged URL-image refresh workaround.
 	// A nil callback enables it. The callback must be concurrency-safe.
 	FormImagesEnabled func() bool
+	// HidePotionParticles hides the client visuals for status effects and thrown potions.
+	HidePotionParticles bool
 
 	// Log is the Logger to use for logging information. If nil, Log is set to
 	// slog.Default(). Errors reported by the underlying network are only logged
