@@ -39,6 +39,7 @@ type Config struct {
 	MaxAirSupply           int
 	EnchantmentSeed        int64
 	Experience             int
+	DisableExperience      bool
 	HeldSlot               int
 	Inventory              *inventory.Inventory
 	OffHand                *inventory.Inventory
@@ -66,6 +67,7 @@ func (cfg Config) Apply(data *world.EntityData) {
 		hunger:              newHungerManager(),
 		health:              entity.NewHealthManager(conf.Health, conf.MaxHealth), // 20, 20
 		experience:          entity.NewExperienceManager(),
+		experienceDisabled:  conf.DisableExperience,
 		effects:             entity.NewEffectManager(conf.Effects...),
 		locale:              conf.Locale,
 		cooldowns:           make(map[string]time.Time),

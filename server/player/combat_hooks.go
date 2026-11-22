@@ -73,6 +73,12 @@ type ItemCooldownHandler interface {
 	HandleItemCooldown(p *Player, it world.Item, native time.Duration) time.Duration
 }
 
+// ItemCooldownDisplayHandler can replace the displayed item cooldown.
+// Returning true keeps the normal server timer and suppresses its hotbar packet.
+type ItemCooldownDisplayHandler interface {
+	HandleItemCooldownDisplay(p *Player, it world.Item, duration time.Duration) bool
+}
+
 func (p *Player) observeDamageOutcome(src world.DamageSource, opts hurtOptions, healthLost, absorptionLost float64, totem bool) {
 	if h, ok := p.Handler().(DamageOutcomeHandler); ok {
 		h.HandleDamageOutcome(p, DamageOutcome{

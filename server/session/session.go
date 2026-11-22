@@ -123,7 +123,8 @@ type Session struct {
 	inputLocksMu sync.RWMutex
 	inputLocks   uint32
 
-	closeBackground chan struct{}
+	closeBackground     chan struct{}
+	experienceCountdown experienceCountdown
 
 	br world.BlockRegistry
 }

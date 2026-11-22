@@ -58,6 +58,31 @@ func TestExperienceRevisionTracksDeathReset(t *testing.T) {
 	})
 }
 
+func TestDisabledExperiencePreservesSavedBalance(t *testing.T) {
+	runtime := world.Config{Synchronous: true}.New()
+	defer runtime.Close()
+	if err := runtime.Do(func(tx *world.Tx) {
+		handle := world.EntitySpawnOpts{}.New(Type, Config{Name: "Disabled XP", Experience: 25, DisableExperience: true})
+		p := tx.AddEntity(handle).(*Player)
+		if p.CanCollectExperience() || p.CollectExperience(5) || p.AddExperience(5) != 0 {
+			t.Error("gameplay XP was accepted")
+		}
+		p.RemoveExperience(5)
+		p.SetExperienceLevel(20)
+		p.SetExperienceProgress(0.5)
+		p.dropItems()
+		if p.Experience() != 0 || p.ExperienceLevel() != 0 || p.ExperienceProgress() != 0 {
+			t.Error("gameplay XP remains available")
+		}
+		if got := p.Data().Experience; got != 25 {
+			t.Errorf("saved XP = %d, want 25", got)
+		}
+		assertExperienceRevision(t, p, 0)
+	}).Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 type cancelExperienceGainHandler struct{ NopHandler }
 
 func (cancelExperienceGainHandler) HandleExperienceGain(ctx *Context, _ *int) {
