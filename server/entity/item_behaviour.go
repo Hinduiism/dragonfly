@@ -20,7 +20,7 @@ type ItemBehaviourConfig struct {
 	// multiplied with (1-Drag) every tick.
 	Drag float64
 	// ExistenceDuration specifies how long the item stack should last. The
-	// default is time.Minute * 5.
+	// default is 30 seconds.
 	ExistenceDuration time.Duration
 	// PickupDelay specifies how much time must expire before the item can be
 	// picked up by collectors. The default is time.Second / 2.
@@ -43,7 +43,7 @@ func (conf ItemBehaviourConfig) New() *ItemBehaviour {
 		conf.PickupDelay = time.Second / 2
 	}
 	if conf.ExistenceDuration == 0 {
-		conf.ExistenceDuration = time.Minute * 5
+		conf.ExistenceDuration = 30 * time.Second
 	}
 
 	b := &ItemBehaviour{conf: conf, i: i, pickupDelay: conf.PickupDelay}
