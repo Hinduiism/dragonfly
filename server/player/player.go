@@ -2121,7 +2121,7 @@ func (p *Player) AttackEntity(e world.Entity) bool {
 		}
 	}
 	if critical {
-		dmg *= 1.5
+		dmg = p.criticalHitDamage(dmg)
 	}
 
 	n, vulnerable := living.Hurt(dmg, entity.AttackDamageSource{Attacker: p})
