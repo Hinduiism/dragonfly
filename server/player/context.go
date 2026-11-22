@@ -9,7 +9,8 @@ import (
 // adds the Player the event concerns. It is valid only during the callback.
 type Context struct {
 	*world.Context
-	p *Player
+	p            *Player
+	useItemInAir bool
 }
 
 // NewEventContext returns a fresh event context for p.
@@ -25,6 +26,13 @@ func NewEventContext(tx *world.Tx, p *Player) *Context {
 // Player returns the player the event concerns, valid only during the
 // callback.
 func (ctx *Context) Player() *Player { return ctx.p }
+
+// UseItemInAir redirects HandleItemUseOnBlock to the ordinary item-use path.
+// It cancels the block interaction and preserves the client's use signals.
+func (ctx *Context) UseItemInAir() {
+	ctx.Cancel()
+	ctx.useItemInAir = true
+}
 
 // Defer schedules f to run on the owner after the current callback completes,
 // with the player re-resolved for that moment. The task fails with

@@ -44,12 +44,15 @@ func handlePlayerAction(action int32, face int32, pos protocol.BlockPos, entityR
 	case protocol.PlayerActionCrackBreak:
 		// Don't do anything for this action. It is no longer used. Block
 		// cracking is done fully server-side.
-	case protocol.PlayerActionStartItemUseOn:
-		// TODO: Properly utilize these actions.
+	case protocol.PlayerActionStartItemUseOn, protocol.PlayerActionInteractWithBlock:
+		// The block transaction decides whether the interaction interrupts use.
+		return nil
+	case protocol.PlayerActionStartUsingItem:
+		handleStartUsingItem(c)
+		return nil
 	case protocol.PlayerActionStopItemUseOn:
-		// This action cancels use. Bow firing belongs to a release transaction.
-	case protocol.PlayerActionInteractWithBlock:
-		// Don't do anything for this action.
+		handleStopItemUse(c, false)
+		return nil
 	case protocol.PlayerActionCreativePlayerDestroyBlock:
 		// Don't do anything for this action.
 	case protocol.PlayerActionMissedSwing:
@@ -63,4 +66,18 @@ func handlePlayerAction(action int32, face int32, pos protocol.BlockPos, entityR
 		user.CancelItemUse()
 	}
 	return nil
+}
+
+func handleStartUsingItem(c Controllable) {
+	if user, ok := c.(interface{ StartUsingConsumable() }); ok {
+		user.StartUsingConsumable()
+	}
+}
+
+func handleStopItemUse(c Controllable, paired bool) {
+	if user, ok := c.(interface{ StopItemUse(bool) }); ok {
+		user.StopItemUse(paired)
+	} else if user, ok := c.(interface{ CancelItemUse() }); ok {
+		user.CancelItemUse()
+	}
 }
