@@ -106,6 +106,8 @@ type Config struct {
 	// data. If left as nil, player data will be newly created every time a
 	// player joins the server and no data will be stored.
 	PlayerProvider player.Provider
+	// DisableExperience suspends gameplay XP for connected players.
+	DisableExperience bool
 	// WorldProvider is the world.Provider used for storing and loading world
 	// data. If left as nil, world data will be newly created every time and
 	// chunks will always be newly generated when loaded. The world provider

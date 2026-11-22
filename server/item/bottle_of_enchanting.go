@@ -10,6 +10,9 @@ type BottleOfEnchanting struct{}
 
 // Use ...
 func (b BottleOfEnchanting) Use(tx *world.Tx, user User, ctx *UseContext) bool {
+	if xp, ok := user.(interface{ ExperienceEnabled() bool }); ok && !xp.ExperienceEnabled() {
+		return false
+	}
 	create := tx.World().EntityRegistry().Config().BottleOfEnchanting
 	opts := world.EntitySpawnOpts{Position: eyePosition(user), Velocity: throwableOffset(user.Rotation()).Vec3().Mul(0.6)}
 	tx.AddEntity(create(opts, user))

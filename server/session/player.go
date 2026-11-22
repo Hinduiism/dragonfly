@@ -891,7 +891,17 @@ func (s *Session) VerifySlot(slot int, expected item.Stack) error {
 
 // SendExperience sends the experience level and progress from the given experience manager to the player.
 func (s *Session) SendExperience(level int, progress float64) {
-	s.writePacket(&packet.UpdateAttributes{
+	s.writePacket(s.experiencePacket(level, progress))
+}
+
+func (s *Session) experiencePacket(level int, progress float64) *packet.UpdateAttributes {
+	if timer := s.experienceCountdown; timer.total > 0 {
+		if remaining := time.Until(timer.end); remaining > 0 {
+			level = int(math.Ceil(remaining.Seconds()))
+			progress = float64(remaining) / float64(timer.total)
+		}
+	}
+	return &packet.UpdateAttributes{
 		EntityRuntimeID: selfEntityRuntimeID,
 		Attributes: []protocol.Attribute{
 			{
@@ -911,7 +921,7 @@ func (s *Session) SendExperience(level int, progress float64) {
 				DefaultMax: 1,
 			},
 		},
-	})
+	}
 }
 
 // SendChargeItemComplete sends a packet to indicate that the item charging process has been completed.

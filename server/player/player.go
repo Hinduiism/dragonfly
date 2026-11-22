@@ -86,6 +86,7 @@ type playerData struct {
 	health             *entity.HealthManager
 	experience         *entity.ExperienceManager
 	experienceRevision uint64
+	experienceDisabled bool
 	effects            *entity.EffectManager
 
 	lastXPPickup *time.Time
@@ -1119,12 +1120,14 @@ func finishDying(p *Player) {
 // dropItems drops all items and experience of the Player on the ground in random directions.
 func (p *Player) dropItems() {
 	pos := p.Position()
-	for _, orb := range entity.NewExperienceOrbs(pos, int(math.Min(float64(p.experience.Level()*7), 100))) {
-		p.tx.AddEntity(orb)
+	if p.ExperienceEnabled() {
+		for _, orb := range entity.NewExperienceOrbs(pos, int(math.Min(float64(p.experience.Level()*7), 100))) {
+			p.tx.AddEntity(orb)
+		}
+		p.experience.Reset()
+		p.experienceRevision++
+		p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 	}
-	p.experience.Reset()
-	p.experienceRevision++
-	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
 
 	p.MoveItemsToInventory()
 	for _, it := range append(p.inv.Clear(), append(p.armour.Clear(), p.offHand.Clear()...)...) {
@@ -1772,6 +1775,9 @@ func (p *Player) SetCooldown(item world.Item, cooldown time.Duration) {
 	}
 	name, _ := item.EncodeItem()
 	p.cooldowns[name] = time.Now().Add(cooldown)
+	if h, ok := p.Handler().(ItemCooldownDisplayHandler); ok && h.HandleItemCooldownDisplay(p, item, cooldown) {
+		return
+	}
 	p.session().ViewItemCooldown(item, cooldown)
 }
 
@@ -2437,8 +2443,10 @@ func (p *Player) BreakBlock(pos cube.Pos) {
 		if info.BreakHandler != nil {
 			info.BreakHandler(pos, p.tx, p)
 		}
-		for _, orb := range entity.NewExperienceOrbs(pos.Vec3Centre(), xp) {
-			p.tx.AddEntity(orb)
+		if p.ExperienceEnabled() {
+			for _, orb := range entity.NewExperienceOrbs(pos.Vec3Centre(), xp) {
+				p.tx.AddEntity(orb)
+			}
 		}
 	}
 	if h, ok := p.Handler().(BlockBreakDropsHandler); ok {
@@ -2713,7 +2721,19 @@ func (p *Player) Collect(s item.Stack) (int, bool) {
 
 // Experience returns the amount of experience the player has.
 func (p *Player) Experience() int {
+	if !p.ExperienceEnabled() {
+		return 0
+	}
 	return p.experience.Experience()
+}
+
+// ExperienceEnabled reports whether the player may earn or spend gameplay XP.
+func (p *Player) ExperienceEnabled() bool { return !p.experienceDisabled }
+
+// ViewExperienceCountdown displays a countdown on the XP HUD. Passing zero
+// remaining time restores the normal display. The player's XP is unaffected.
+func (p *Player) ViewExperienceCountdown(total, remaining time.Duration) {
+	p.session().ViewExperienceCountdown(p, total, remaining)
 }
 
 // ExperienceRevision returns the number of accepted experience mutations made
@@ -2735,6 +2755,9 @@ func (p *Player) ResetEnchantmentSeed() {
 
 // AddExperience adds experience to the player.
 func (p *Player) AddExperience(amount int) int {
+	if !p.ExperienceEnabled() {
+		return 0
+	}
 	ctx := NewEventContext(p.tx, p)
 	if p.Handler().HandleExperienceGain(ctx, &amount); ctx.Cancelled() {
 		return 0
@@ -2753,6 +2776,9 @@ func (p *Player) AddExperience(amount int) int {
 
 // RemoveExperience removes experience from the player.
 func (p *Player) RemoveExperience(amount int) {
+	if !p.ExperienceEnabled() {
+		return
+	}
 	p.experience.Add(-amount)
 	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
@@ -2760,12 +2786,18 @@ func (p *Player) RemoveExperience(amount int) {
 
 // ExperienceLevel returns the experience level of the player.
 func (p *Player) ExperienceLevel() int {
+	if !p.ExperienceEnabled() {
+		return 0
+	}
 	return p.experience.Level()
 }
 
 // SetExperienceLevel sets the experience level of the player. The level must have a value between 0 and 2,147,483,647,
 // otherwise the method panics.
 func (p *Player) SetExperienceLevel(level int) {
+	if !p.ExperienceEnabled() {
+		return
+	}
 	p.experience.SetLevel(level)
 	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
@@ -2773,12 +2805,18 @@ func (p *Player) SetExperienceLevel(level int) {
 
 // ExperienceProgress returns the experience progress of the player.
 func (p *Player) ExperienceProgress() float64 {
+	if !p.ExperienceEnabled() {
+		return 0
+	}
 	return p.experience.Progress()
 }
 
 // SetExperienceProgress sets the experience progress of the player. The progress must have a value between 0.0 and 1.0, otherwise
 // the method panics.
 func (p *Player) SetExperienceProgress(progress float64) {
+	if !p.ExperienceEnabled() {
+		return
+	}
 	p.experience.SetProgress(progress)
 	p.experienceRevision++
 	p.session().SendExperience(p.ExperienceLevel(), p.ExperienceProgress())
@@ -2787,7 +2825,7 @@ func (p *Player) SetExperienceProgress(progress float64) {
 // CanCollectExperience checks if the player can collect experience, which is true if the player is not dead,
 // is in a game mode that allows interaction and if 100ms have passed since the last experience collection.
 func (p *Player) CanCollectExperience() bool {
-	if p.Dead() || !p.GameMode().AllowsInteraction() {
+	if !p.ExperienceEnabled() || p.Dead() || !p.GameMode().AllowsInteraction() {
 		return false
 	}
 	if last := p.lastXPPickup; last != nil && time.Since(*last) < time.Millisecond*100 {
@@ -2915,6 +2953,7 @@ func (p *Player) Latency() time.Duration {
 
 // Tick ticks the entity, performing actions such as checking if the player is still breaking a block.
 func (p *Player) Tick(tx *world.Tx, current int64) {
+	p.session().TickExperienceCountdown(p)
 	if p.Dead() {
 		return
 	}
