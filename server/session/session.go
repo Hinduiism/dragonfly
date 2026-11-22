@@ -184,10 +184,11 @@ type CommandPresentation struct {
 }
 
 type Config struct {
-	Commands          CommandPresentation
-	ConnectionEnded   func(*Connection, ConnectionEnd)
-	ServerSettings    func(*world.Tx, Controllable) form.Form
-	FormImagesEnabled func() bool
+	Commands            CommandPresentation
+	ConnectionEnded     func(*Connection, ConnectionEnd)
+	ServerSettings      func(*world.Tx, Controllable) form.Form
+	FormImagesEnabled   func() bool
+	HidePotionParticles bool
 
 	Log *slog.Logger
 

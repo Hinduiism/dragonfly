@@ -584,9 +584,10 @@ func (srv *Server) createPlayer(id uuid.UUID, conn session.Conn, conf player.Con
 	srv.pwg.Add(1)
 
 	s := session.Config{
-		Commands:          srv.conf.Commands,
-		ConnectionEnded:   srv.conf.ConnectionEnded,
-		FormImagesEnabled: srv.conf.FormImagesEnabled,
+		Commands:            srv.conf.Commands,
+		ConnectionEnded:     srv.conf.ConnectionEnded,
+		HidePotionParticles: srv.conf.HidePotionParticles,
+		FormImagesEnabled:   srv.conf.FormImagesEnabled,
 		ServerSettings: func(tx *world.Tx, c session.Controllable) form.Form {
 			if srv.conf.ServerSettings != nil {
 				return srv.conf.ServerSettings(tx, c.(*player.Player))

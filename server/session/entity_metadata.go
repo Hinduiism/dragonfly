@@ -165,16 +165,17 @@ func (s *Session) addSpecificMetadata(e any, m protocol.EntityMetadata) {
 	}
 	if eff, ok := e.(effectBearer); ok {
 		var packedEffects int64
-
-		for _, ef := range eff.Effects() {
-			if !ef.ParticlesHidden() {
-				id, found := effect.ID(ef.Type())
-				if !found {
-					continue
-				}
-				packedEffects = (packedEffects << 7) | int64(id<<1)
-				if ef.Ambient() {
-					packedEffects |= 1
+		if !s.conf.HidePotionParticles {
+			for _, ef := range eff.Effects() {
+				if !ef.ParticlesHidden() {
+					id, found := effect.ID(ef.Type())
+					if !found {
+						continue
+					}
+					packedEffects = (packedEffects << 7) | int64(id<<1)
+					if ef.Ambient() {
+						packedEffects |= 1
+					}
 				}
 			}
 		}

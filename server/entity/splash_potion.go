@@ -17,7 +17,7 @@ func NewSplashPotion(opts world.EntitySpawnOpts, t potion.Potion, owner world.En
 
 	conf := splashPotionConf
 	conf.Potion = t
-	conf.Particle = particle.Splash{Colour: colour}
+	conf.Particle = particle.Splash{Colour: colour, Potion: true}
 	conf.Hit = potionSplash(1, t, false)
 	conf.Owner = owner.H()
 
@@ -49,7 +49,7 @@ func (splashPotionType) DecodeNBT(m map[string]any, data *world.EntityData) {
 	conf := splashPotionConf
 	conf.Potion = potion.From(nbtconv.Int32(m, "PotionId"))
 	colour, _ := effect.ResultingColour(conf.Potion.Effects())
-	conf.Particle = particle.Splash{Colour: colour}
+	conf.Particle = particle.Splash{Colour: colour, Potion: true}
 	conf.Hit = potionSplash(1, conf.Potion, false)
 
 	data.Data = projectileOwnerFromNBT(conf, m).New()
